@@ -18,6 +18,14 @@ cliente, así que el Hub instalado quedaba esperando en el `:9999`.
   runtime viejo en memoria explicaba timing en T+0 fijo y coco guard sin
   aplicar aunque el Hub fuera el correcto. La barra lateral muestra el build
   del runtime conectado.
+- Runtime v6_62 original (sha256 `3fc2dabb06a7fa53fd4ca548230e233a272973e541ad0d85b61cc4d2373b5968`).
+  El 03/10 a las 17:40 la versión experimental cambió `HTML5/hub_runtime/flash_runtime.page.js`
+  sin cambiar el build: STEP armaba disparos contra cualquiera que se moviera,
+  `threatPick` sumaba +5000 al seleccionado, coco a cualquiera en diagonal
+  durante la animación (con el cupo contado dos veces), guards fuera del Ring
+  y el avatar en cada `state`. Se recuperó desde la copia experimental anterior
+  a esos cambios, sin su código de avatar; tiene lo documentado de v6_60–v6_62.
+  `sync-runtime` rechaza un runtime con esos cambios.
 - Diagnósticos de combate apagados en la versión distribuida.
 - Inicio muestra nuestro personaje (diseño traído de la rama experimental): el
   lanzador lee `#BoomBangFlowerPowerAvatar` del juego cada 4 s, fuera del
