@@ -623,16 +623,9 @@
   function selectedId() {
     const sel = providerInstance(state.providers.selection);
     const fichado = asId(sel?.avatarFichado?.userSpaceId);
-    const selfId = inferSelfId();
-    if (fichado != null && fichado >= 0 && fichado !== selfId) {
+    if (fichado != null && fichado >= 0) {
       state.selectedId = fichado;
       return fichado;
-    }
-    const renderer = providerInstance(state.providers.renderer);
-    if (state.selectedId >= 0) {
-      if (state.selectedId === selfId || (renderer?.avatars && !renderer.avatars.has(state.selectedId))) {
-        state.selectedId = -1;
-      }
     }
     return state.selectedId;
   }
@@ -732,7 +725,6 @@
         posId: id,
         userId: Number.isFinite(Number(info.id)) ? Number(info.id) : id,
         name: String(info.username || info.name || ""),
-        avatarUrl: id === selfId ? selfAvatarUrl() : null,
         state: Number(avatar?.state) || 0,
         skin: Number(info.skinId ?? info.skin) || 0,
         x: Number.isFinite(x) ? x | 0 : 0,
@@ -999,22 +991,12 @@
     };
   }
 
-  function selfAvatarUrl() {
-    try {
-      const el = document.getElementById("BoomBangFlowerPowerAvatar");
-      const img = el?.querySelector("img");
-      if (img && img.src) return img.src;
-    } catch {}
-    return null;
-  }
-
   function sendHello() {
     refreshPing();
     sendToHub({
       type: "hello",
       bridgeBuild: BRIDGE_BUILD,
       selfId: inferSelfId(),
-      avatarUrl: selfAvatarUrl(),
       serverPingMs: state.serverPingMs,
       proxyRemoteHost: "",
       proxyRemotePort: "",
@@ -1028,7 +1010,6 @@
       type: "state",
       bridgeBuild: BRIDGE_BUILD,
       selfId: inferSelfId(),
-      avatarUrl: selfAvatarUrl(),
       selectedId: selectedId(),
       serverPingMs: state.serverPingMs,
       players: collectPlayers(),
@@ -3142,7 +3123,6 @@
     const spots = [{ ...me, w: 1 }];
     if (tickBetween && (me.x !== selfActor.toX || me.y !== selfActor.toY)) spots.push({ x: selfActor.toX, y: selfActor.toY, w: 0.3 });
     const renderer = sceneRenderer();
-    const selId = selectedId();
     let best = null;
     let second = null;
     for (const rawId of renderer?.avatars?.keys?.() || []) {
@@ -3171,16 +3151,14 @@
         q *= spot.w;
         if (q > p) { p = q; dist = d; from = spot; }
       }
-      const isSelected = selId >= 0 && id === selId;
-      if (isSelected && dist <= 2 && p < 0.25) p = 0.25;
-      if (p < 0 || (!isSelected && p < minProb)) continue;
+      if (p < 0 || p < minProb) continue;
       // A rival in its punch animation can not be hit (nor hit us) yet.
       if (rivalLocked(id, landingLocal)) continue;
       // A defender that is walking gets hit faster: live 26/09, our hold on a
       // standing rival was 69-138 ms (median 118), on a walking one ~76 with
       // some near 0 (July, all players: median 139-165 vs 92-100 after contact).
       const walking = a.startAt >= E.lastBatchAt - 30 && Boolean(a.dirX || a.dirY);
-      const rank = p * 1000 * (walking ? WALKER_BONUS : 1) - dist + (isSelected ? 5000 : 0);
+      const rank = p * 1000 * (walking ? WALKER_BONUS : 1) - dist;
       const cand = { id, score: Number(p.toFixed(3)), dist, rank, walking, face: faceSide(from.x, from.y, a.toX, a.toY) };
       if (!best || rank > best.rank) {
         second = best;
@@ -3222,7 +3200,7 @@
     const E = state.tickEngine;
     const t = now();
     if (!tickEnabled() || E.selfOut || R.count >= REACH_PROBE_MAX || t - R.lastAt < REACH_PROBE_GAP_MS) return;
-    if (sceneRenderer()?.spaceModel?.name === "escenario404") return;
+    if (sceneRenderer()?.spaceModel?.name !== "mGame2") return;
     const landing = t + rttEstimateMs() + E.corr;
     if (selfLocked(landing) || exitBlocksLanding(landing)) return;
     const selfId = inferSelfId();
@@ -4851,21 +4829,20 @@
       } else {
         const anchor = String(state.timing.stepAnchor || "SELF").toUpperCase();
         const isSelf = movedId === selfId;
-        let targetId = sel >= 0 && sel !== selfId ? sel : (movedId !== selfId ? movedId : -1);
-        if (targetId < 0 && isSelf) {
-          const threat = threatPick(now() + 100, 0.05);
-          if (threat) targetId = threat.id;
-        }
-        const isTarget = targetId >= 0 && movedId === targetId;
+        const isTarget = sel >= 0 && movedId === sel;
         let shouldArm = false;
+        let targetId = sel;
         if (anchor === "SELF" && isSelf) {
-          shouldArm = targetId >= 0;
+          shouldArm = sel >= 0;
+          targetId = sel;
         } else if (anchor === "TARGET" && isTarget) {
           shouldArm = true;
-        } else if (anchor === "BOTH" && (isSelf || isTarget || movedId !== selfId)) {
-          shouldArm = targetId >= 0;
+          targetId = sel;
+        } else if (anchor === "BOTH" && (isSelf || isTarget)) {
+          shouldArm = sel >= 0;
+          targetId = sel;
         }
-        if (shouldArm && targetId >= 0 && targetId !== selfId) {
+        if (shouldArm && targetId >= 0) {
           scheduleStepWindow(
             targetId,
             dur,
@@ -5068,7 +5045,6 @@
         onMoveStep(movedId, x, y, dur, orient, direction, contFlag);
         reactSchedule();
         reachProbeSchedule();
-        cocoGuardOnEnemyStep(movedId);
         cocoSelfOnStep(movedId);
         tickPreflightSchedule();
       }
@@ -5869,8 +5845,7 @@
     if (!end || String(Math.round(end)) !== endKey || msg.seq !== state.seq) return;
     // In our own coco selfOut is set by design; for the upper guard it means we are out.
     if (!G.enabled || !tickEnabled() || (kind !== "COCO" && E.selfOut)) return;
-    const space = sceneRenderer()?.spaceModel?.name || "";
-    if (space === "escenario404") return; // lobby
+    if (sceneRenderer()?.spaceModel?.name !== "mGame2") return;
     // A self-coco took this window: we are immune and can not punch anyway.
     if (G.selfEnd && Math.abs(end - G.selfEnd) < 700) {
       sendDiagnostic("coco_guard", { kind, targetId: -1, why: "self_coco", used: G.used, lockEnd: Math.round(end) });
@@ -5888,7 +5863,6 @@
     // click and its retry go to the next rival (user 27/09: they come 2-3 at once).
     G.pending.set(pick.id, landing + G.leadMs + 300);
     G.fired++;
-    G.used++;
     G.lastTarget = pick.id;
     sendDiagnostic("coco_guard", { kind, targetId: pick.id, waitedMs: Math.round(pick.since), used: G.used, lockEnd: Math.round(end), lateMs: Math.round(now() - Number(msg.dueAt)) });
   }
@@ -5903,48 +5877,11 @@
       const id = asId(rawId);
       if (id == null || id === selfId || E.out.has(id) || isMuted(id) || isAlly(id) || isStale(id) || rivalLocked(id, landing)) continue;
       const a = ensureActorFromRenderer(id);
-      if (!a) continue;
-      const dx = Math.abs(a.toX - me.toX);
-      const dy = Math.abs(a.toY - me.toY);
-      const isAdjacent = (dx <= 1 && dy <= 1) && (dx + dy > 0);
-      if (!isAdjacent) continue;
+      if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
       const since = now() - (a.startAt || 0); // the longer it has waited there, the surer
       if (!best || since > best.since) best = { id, score: 1, since, face: faceSide(me.toX, me.toY, a.toX, a.toY) };
     }
     return best;
-  }
-
-  // Tirar coco inmediatamente a los enemigos que se acerquen a una casilla adyacente mientras estamos en animación
-  function cocoGuardOnEnemyStep(movedId) {
-    const G = state.cocoGuard;
-    const E = state.tickEngine;
-    if (!G.enabled || G.used >= G.max || E.selfOut) return;
-    const selfId = inferSelfId();
-    if (movedId == null || movedId === selfId || isAlly(movedId) || E.out.has(movedId)) return;
-    const space = sceneRenderer()?.spaceModel?.name || "";
-    if (space === "escenario404") return;
-    const t = now();
-    const inAnimation = (t < (E.selfLockEnd || 0)) ||
-      (state.exitMode.self && t < state.exitMode.self.endAt) ||
-      selfLocked(t);
-    if (!inAnimation) return;
-    const me = ensureActorFromRenderer(selfId);
-    const enemy = ensureActorFromRenderer(movedId);
-    if (!me || !enemy) return;
-    const dx = Math.abs(enemy.toX - me.toX);
-    const dy = Math.abs(enemy.toY - me.toY);
-    if (dx > 1 || dy > 1 || (dx === 0 && dy === 0)) return;
-    if ((G.pending.get(movedId) || 0) > t) return;
-    const upper = providerInstance(state.providers.upper);
-    if (!upper || typeof upper.cocoRequest !== "function") return;
-    try {
-      upper.cocoRequest(movedId);
-      G.used++;
-      G.fired++;
-      G.lastTarget = movedId;
-      G.pending.set(movedId, t + 7000);
-      sendDiagnostic("coco_guard", { kind: "ANIM_STEP", targetId: movedId, why: "enemy_step_in_anim", used: G.used });
-    } catch {}
   }
 
   // ---- Self coco (01/10) ------------------------------------------------------
@@ -6001,7 +5938,7 @@
     const E = state.tickEngine;
     const G = state.cocoGuard;
     if (G.selfMode !== "auto" || !tickEnabled() || E.selfOut || movedId === inferSelfId()) return;
-    if (sceneRenderer()?.spaceModel?.name === "escenario404") return;
+    if (sceneRenderer()?.spaceModel?.name !== "mGame2") return;
     // Stunned: nothing to cover, and a throw would be ignored anyway.
     if (exitBlocksLanding(now() + rttEstimateMs() + state.tickEngine.corr)) return;
     const end = E.selfLockEnd;
