@@ -256,8 +256,10 @@ function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, applyTim
   const hunter = snapshot.dropHunter || fallbackSnapshot.dropHunter;
   const combat = snapshot.combat || fallbackSnapshot.combat;
   const auto = snapshot.tick?.auto;
+  const avatarUrl = snapshot.game?.avatarUrl || "";
   return <>
     <PageHeading title="Inicio" description={selfPlayer ? <>Sesión de <strong>{selfPlayer.name}</strong> · {snapshot.connected ? "cliente conectado" : "cliente sin conexión"}.</> : "Esperando al cliente del juego."} action={<button className="btn" onClick={() => setActiveTab("timing")}>Abrir Timing <ArrowUpRight aria-hidden="true" size={15} /></button>} />
+    <ProfileCard snapshot={snapshot} selfPlayer={selfPlayer} avatarUrl={avatarUrl} players={players} />
     <GameSection game={snapshot.game} connected={snapshot.connected} runAction={runAction} />
     <section className="section" aria-label="Modos de operación">
       <h2 id="modes-title" className="section-title">Modos</h2>
@@ -275,11 +277,30 @@ function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, applyTim
       </section>
       <section className="section" aria-labelledby="room-title">
         <h2 id="room-title" className="section-title">En sala <span className="section-meta">{players.length} jugadores</span></h2>
-        {players.length ? <ul className="roster">{players.slice(0, 5).map((p) => <li key={p.id}><button className={`roster-row ${p.selected ? "is-target" : ""}`} onClick={() => openPlayer(p.id)}><span className="roster-name">{p.name || `Jugador ${p.id}`}</span><span className="roster-meta mono">{p.self ? "tú" : `#${p.id}`} · {p.x}, {p.y}</span>{p.selected && <span className="flag flag-accent">Objetivo</span>}{p.self && <span className="flag">Tú</span>}<ArrowUpRight aria-hidden="true" size={15} className="roster-arrow" /></button></li>)}</ul> : <EmptyState icon={Users} title="Sin jugadores en la sala." text="Aparecen al conectar el cliente." compact />}
+        {players.length ? <ul className="roster">{players.slice(0, 5).map((p) => <li key={p.id}><button className={`roster-row ${p.selected ? "is-target" : ""}`} onClick={() => openPlayer(p.id)}>{p.self && avatarUrl && <img src={avatarUrl} alt="" className="roster-avatar" />}<span className="roster-name">{p.name || `Jugador ${p.id}`}</span><span className="roster-meta mono">{p.self ? "tú" : `#${p.id}`} · {p.x}, {p.y}</span>{p.selected && <span className="flag flag-accent">Objetivo</span>}{p.self && <span className="flag">Tú</span>}<ArrowUpRight aria-hidden="true" size={15} className="roster-arrow" /></button></li>)}</ul> : <EmptyState icon={Users} title="Sin jugadores en la sala." text="Aparecen al conectar el cliente." compact />}
         <button className="link" onClick={() => setActiveTab("players")}>Ver jugadores <ArrowRight aria-hidden="true" size={14} /></button>
       </section>
     </div>
   </>;
+}
+
+// Our character as the game draws it, read by the launcher from the game page.
+function ProfileCard({ snapshot, selfPlayer, avatarUrl, players }) {
+  const [broken, setBroken] = useState("");
+  const name = selfPlayer?.name || snapshot.game?.username || "Tu keko";
+  const showImage = avatarUrl && broken !== avatarUrl;
+  const meta = !snapshot.connected ? "Esperando al cliente del juego."
+    : selfPlayer ? `En sala con ${Math.max(0, players.length - 1)} jugadores · posición ${selfPlayer.x}, ${selfPlayer.y}.`
+    : "Cliente conectado, todavía sin sala.";
+  return <section className="profile" aria-label="Tu personaje">
+    <div className="profile-avatar">
+      {showImage ? <img src={avatarUrl} alt={`Personaje de ${name}`} onError={() => setBroken(avatarUrl)} /> : <span aria-hidden="true">{name.slice(0, 2).toUpperCase()}</span>}
+    </div>
+    <div className="profile-text">
+      <p className="profile-name">{name}</p>
+      <p className="profile-meta"><span className={`dot dot-${snapshot.connected ? "good" : "muted"}`} aria-hidden="true" />{snapshot.connected ? "Conectado al juego" : "Sin conexión"}<span className="profile-sep" aria-hidden="true">·</span>{meta}</p>
+    </div>
+  </section>;
 }
 
 // The Hub opens BoomBang itself (it used to take ABRIR_HUB_Y_CONTROLLER.cmd).

@@ -4,6 +4,7 @@
 // ?demo=empty -> empty session (no client), ?demo=error -> getSnapshot fails.
 
 const RING_PREVIEW_URL = "http://127.0.0.1:18450/";
+const DEMO_AVATAR = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="22" r="12" fill="#e8c39e"/><rect x="18" y="34" width="28" height="24" rx="8" fill="#c8102e"/></svg>');
 
 const NAMES = [
   { id: 14, name: "Bachi", userId: 881204, skin: "Boxeador", self: true },
@@ -94,7 +95,7 @@ export function createDemoApi(base) {
   let snap = mode === "empty" ? { ...base, ringBoard: { ...base.ringBoard, url: RING_PREVIEW_URL } } : buildSnapshot(base);
   snap.game = mode === "empty"
     ? { state: "idle", message: "", username: "", hasAccount: false, clientFound: true }
-    : { state: "ready", message: "Juego conectado.", username: "Bachi", hasAccount: true, clientFound: true };
+    : { state: "ready", message: "Juego conectado.", username: "Bachi", hasAccount: true, clientFound: true, avatarUrl: DEMO_AVATAR };
   const listeners = new Set();
   const emit = () => { snap = { ...snap }; listeners.forEach((fn) => fn(snap)); };
   const log = (text) => { snap.logs = [...(snap.logs || []), { ts: stamp(), text }].slice(-80); };

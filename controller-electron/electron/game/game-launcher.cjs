@@ -21,6 +21,22 @@ const READY_TIMEOUT_MS = 120000;
 const GAME_FRAME_RE = /static\.boombang\.tv\/betahtml5/;
 const RING_SCENE_PATH = path.join(__dirname, "ring_scene.page.js");
 const RUNTIME_PATH = path.join(__dirname, "flash_runtime.page.js");
+const AVATAR_POLL_MS = 4000;
+const AVATAR_MAX_CHARS = 600000;
+// Our character as the game draws it (#BoomBangFlowerPowerAvatar). Read from
+// outside the runtime, every few seconds: nothing on the timing path. A blob:
+// URL only exists inside the game, so it goes out as a data URL.
+const AVATAR_JS = `
+  const src = document.getElementById("BoomBangFlowerPowerAvatar")?.querySelector("img")?.src || "";
+  if (!src.startsWith("blob:")) return src;
+  const blob = await (await fetch(src)).blob();
+  if (blob.size > 400000) return "";
+  return await new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(blob);
+  });`;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -63,6 +79,8 @@ class GameLauncher extends EventEmitter {
     this.browser = null;
     this.bridge = null;
     this.gameFrame = null;
+    this.avatarUrl = "";
+    this.avatarTimer = null;
     this.busy = false;
   }
 
@@ -73,6 +91,7 @@ class GameLauncher extends EventEmitter {
       message: this.message,
       username: account?.username || "",
       hasAccount: Boolean(account),
+      avatarUrl: this.avatarUrl,
       clientFound: fs.existsSync(this.clientExe)
     };
   }
@@ -355,6 +374,8 @@ class GameLauncher extends EventEmitter {
     await inPage(frame, `window.__BBFlashRuntime?.setHubConnected?.(${arg(Boolean(this.bridge.connected))});`).catch(() => {});
     this.log(`Juego: runtime ${boot.bridgeBuild || "?"} listo.`);
     this.setState("ready", "Juego conectado.");
+    void this.readAvatar();
+    this.avatarTimer = setInterval(() => void this.readAvatar(), AVATAR_POLL_MS);
 
     const closed = () => {
       if (this.state !== "ready") return;
@@ -362,6 +383,15 @@ class GameLauncher extends EventEmitter {
     };
     this.browser.once("disconnected", closed);
     child?.once("exit", closed);
+  }
+
+  async readAvatar() {
+    if (!this.gameFrame) return;
+    const url = await inPage(this.gameFrame, AVATAR_JS).catch(() => "");
+    if (typeof url !== "string" || !/^(https?:|data:image\/)/.test(url) || url.length > AVATAR_MAX_CHARS) return;
+    if (url === this.avatarUrl) return;
+    this.avatarUrl = url;
+    this.emit("change");
   }
 
   async deliver(msg) {
@@ -376,6 +406,8 @@ class GameLauncher extends EventEmitter {
   // closeGame: also kill a client we started (failed launch). On Hub exit the
   // game stays open; it reconnects when the Hub opens again.
   async teardown(closeGame) {
+    clearInterval(this.avatarTimer);
+    this.avatarTimer = null;
     this.gameFrame = null;
     try { this.bridge?.stop(); } catch {}
     this.bridge = null;
@@ -391,6 +423,8 @@ class GameLauncher extends EventEmitter {
   }
 
   stop() {
+    clearInterval(this.avatarTimer);
+    this.avatarTimer = null;
     try { this.bridge?.stop(); } catch {}
     this.bridge = null;
   }
