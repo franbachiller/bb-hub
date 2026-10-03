@@ -213,7 +213,7 @@ function App() {
         <nav className="rail-nav" aria-label="Navegación principal">
           {navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={`rail-link ${activeTab === item.id ? "is-current" : ""}`} aria-current={activeTab === item.id ? "page" : undefined} onClick={() => setActiveTab(item.id)} title={item.id === "timing" && timingOn ? `${item.label} · activo` : item.label}><Icon aria-hidden="true" size={17} strokeWidth={1.6} /><span className="rail-label">{item.label}</span>{item.id === "timing" && timingOn && <span className="rail-live">activo</span>}</button>; })}
         </nav>
-        <p className="rail-foot"><span>Controller</span><span className="mono" title={snapshot.controllerBuild}>{snapshot.controllerBuild !== "-" ? snapshot.controllerBuild : "—"}</span><span>Runtime</span><span className="mono" title={snapshot.bridgeBuild}>{snapshot.connected && snapshot.bridgeBuild !== "-" ? snapshot.bridgeBuild : "—"}</span></p>
+        <p className="rail-foot"><span className="rail-signature">by bachi</span><span>Controller</span><span className="mono" title={snapshot.controllerBuild}>{snapshot.controllerBuild !== "-" ? snapshot.controllerBuild : "—"}</span><span>Runtime</span><span className="mono" title={snapshot.bridgeBuild}>{snapshot.connected && snapshot.bridgeBuild !== "-" ? snapshot.bridgeBuild : "—"}</span></p>
       </aside>
       <div className="main">
         <header className="strip" aria-busy={loading}>
