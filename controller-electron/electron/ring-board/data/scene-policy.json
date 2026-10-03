@@ -1,0 +1,24 @@
+{
+  "allowedCombatHashes": [
+    "794bf3d1",
+    "681d57fe",
+    "a5be59ae",
+    "c74ac929",
+    "30405931",
+    "3922aa11",
+    "6f6d9f41",
+    "2bf5b8c1",
+    "d5cf9551",
+    "b614a99e",
+    "testpulse01",
+    "botmodes01",
+    "botmodes02",
+    "8d7faf61",
+    "a58545ee",
+    "26f2abc0",
+    "d03ed4fd"
+  ],
+  "ignoredHashes": [
+    "3e61b0be"
+  ]
+}

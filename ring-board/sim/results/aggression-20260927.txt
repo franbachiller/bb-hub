@@ -1,0 +1,9 @@
+kill=1.3 | tile2+finals 7 rivals, 800 rounds | survive 20% (last one standing 20%) | kills/round 2.13 | k/d 2.65 | alive median 43 s | fights/alive-min 3.71 | moving 35% | 21 s
+kill=0.7 | tile2+finals 7 rivals, 800 rounds | survive 29% (last one standing 18%) | kills/round 1.00 | k/d 1.41 | alive median 125 s | fights/alive-min 0.81 | moving 72% | 46 s
+kill=1.0 | tile2+finals 7 rivals, 800 rounds | survive 29% (last one standing 29%) | kills/round 1.74 | k/d 2.44 | alive median 92 s | fights/alive-min 1.59 | moving 61% | 41 s
+kill=2.0 | tile2+finals 7 rivals, 800 rounds | survive 19% (last one standing 19%) | kills/round 2.19 | k/d 2.70 | alive median 37 s | fights/alive-min 4.15 | moving 31% | 19 s
+kill=3.0 | tile2+finals 7 rivals, 800 rounds | survive 18% (last one standing 18%) | kills/round 2.14 | k/d 2.61 | alive median 37 s | fights/alive-min 4.31 | moving 30% | 19 s
+kill=5.0 | tile2+finals 7 rivals, 800 rounds | survive 20% (last one standing 20%) | kills/round 2.19 | k/d 2.74 | alive median 36 s | fights/alive-min 4.40 | moving 28% | 24 s
+kill=0.8,1.3,2.5 | tile2+finals 7 rivals, 800 rounds | survive 25% (last one standing 25%) | kills/round 1.67 | k/d 2.22 | alive median 77 s | fights/alive-min 1.82 | moving 59% | 32 s
+kill=1.3,2,3 | tile2+finals 7 rivals, 800 rounds | survive 19% (last one standing 19%) | kills/round 2.16 | k/d 2.66 | alive median 42 s | fights/alive-min 3.80 | moving 34% | 23 s
+kill=2.5,1.3,1.3 | tile2+finals 7 rivals, 800 rounds | survive 19% (last one standing 19%) | kills/round 2.13 | k/d 2.64 | alive median 37 s | fights/alive-min 4.15 | moving 31% | 20 s

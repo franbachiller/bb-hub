@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "archetypes": {
+    "camper": {
+      "seen": 0,
+      "commits": 0,
+      "lures": 0,
+      "evades": 0,
+      "lastSeenTs": 0
+    },
+    "chaser": {
+      "seen": 0,
+      "commits": 0,
+      "lures": 0,
+      "evades": 0,
+      "lastSeenTs": 0
+    },
+    "side-stepper": {
+      "seen": 0,
+      "commits": 0,
+      "lures": 0,
+      "evades": 0,
+      "lastSeenTs": 0
+    },
+    "hesitant": {
+      "seen": 0,
+      "commits": 0,
+      "lures": 0,
+      "evades": 0,
+      "lastSeenTs": 0
+    },
+    "collapser": {
+      "seen": 0,
+      "commits": 0,
+      "lures": 0,
+      "evades": 0,
+      "lastSeenTs": 0
+    }
+  }
+}

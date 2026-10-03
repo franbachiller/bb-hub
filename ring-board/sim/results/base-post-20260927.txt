@@ -1,0 +1,5 @@
+finals 7 rivals, 800 rounds | survive 19% (last one standing 18%) | kills/round 1.64 | k/d 2.01 | alive median 61 s | fights/alive-min 2.16 | moving 64% | 1080 s
+      fight types: we 62% | race 27% | both 10% | they 0% | rivals walking 23% of their ticks
+tile+finals 7 rivals, 800 rounds | survive 20% (last one standing 20%) | kills/round 1.92 | k/d 2.38 | alive median 52 s | fights/alive-min 2.90 | moving 42% | 26 s
+      fight types: both 13% | we 77% | they 8% | race 1% | rivals walking 26% of their ticks
+exit=0

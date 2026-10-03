@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>BB Hub · QA local</title></head>
+<body><div id="root"></div>
+<script>
+// Local visual/interaction fixture. Never included in the Electron package.
+const listeners = new Set();
+const calls = [];
+const state = {
+  controllerBuild: 'qa', bridgeBuild: 'qa', connected: true, selfId: 1, selectedTarget: 2,
+  serverPingMs: 171, bridgePingMs: 3, lastStateAgeMs: 100,
+  players: [
+    { id:1, userId:1001, name:'Bachi', self:true, selected:false, state:1, skin:2, x:14, y:13, orient:2, cocoMs:0, mark:'SELF' },
+    { id:2, userId:1002, name:'Nébula', self:false, selected:true, state:1, skin:3, x:13, y:12, orient:1, cocoMs:0, mark:'TARGET' },
+    { id:3, userId:1003, name:'Órbita', self:false, selected:false, state:1, skin:4, x:16, y:14, orient:3, cocoMs:4200, mark:'' },
+    { id:4, userId:1004, name:'NombreExtensoParaProbarElEspacio', self:false, selected:false, state:1, skin:5, x:11, y:10, orient:6, cocoMs:0, mark:'' }
+  ],
+  timing: {enabled:true, source:'STEP', tick:{enabled:true, auto:true}}, stepWalk:true,
+  tick:{synced:true, fired:48, reactFired:9, lastSkip:'sin contacto', auto:{aimMs:2, recentWinRate:67, boundaryMs:0, samples:38, sigmaMs:3, rivalMedianMs:9}},
+  exit:{cocoActive:false, cocoRemainingMs:0}, combat:{hits:18, gotHit:9},
+  dropHunter:{enabled:false,autoClaim:true,state:'IDLE',dropId:-1,x:-1,y:-1,keyword:'',lastEvent:'Sin eventos',lastAt:0},
+  ringBoard:{url:'/qa/board-preview.html',bridgeConnected:true,armed:false,highPower:false,moveAssist:false,stepCadenceAlways:false,pulseClick:false,sceneHash:'ring-794bf3d1',lastSensorAgeMs:84,lastCommand:'Esperando'},
+  punchPackets:1, logs:[{ts:'12:04:18',text:'Cliente conectado'},{ts:'12:04:22',text:'Timing activado'},{ts:'12:04:24',text:'Objetivo seleccionado: Nébula'}]
+};
+function emit() { for (const fn of listeners) fn(structuredClone(state)); }
+function action(name, mutate = () => {}) { return async (...args) => { calls.push({name,args}); mutate(...args); emit(); }; }
+window.__qa = {calls,state,emit};
+window.ringController = {
+  getSnapshot:async()=>structuredClone(state), onSnapshot(fn){listeners.add(fn);return()=>listeners.delete(fn)},
+  applyTiming:action('applyTiming',p=>{state.timing={...state.timing,...p};}),
+  applyStepWalk:action('applyStepWalk',p=>{state.stepWalk=p.enabled;}),
+  applyDropHunter:action('applyDropHunter',p=>{state.dropHunter={...state.dropHunter,...p}}),
+  stopModes:action('stopModes',()=>{state.timing.enabled=false;state.dropHunter.enabled=false;}),
+  setRingBoardArmed:action('setRingBoardArmed',v=>{state.ringBoard.armed=v;}),
+  ringBoardAction:action('ringBoardAction',(key,v)=>{const map={set_move_assist:'moveAssist',set_high_power:'highPower',set_step_cadence_always:'stepCadenceAlways',set_pulse_click:'pulseClick'};if(map[key])state.ringBoard[map[key]]=v;}),
+  selectTarget:action('selectTarget',id=>{state.selectedTarget=id;state.players.forEach(p=>p.selected=p.id===id);}),
+  clearLogs:action('clearLogs',()=>{state.logs=[];}),
+  resetTickAuto:action('resetTickAuto'),resetExit:action('resetExit'),
+  applyMovePunch:action('applyMovePunch'),saveDraftConfig:action('saveDraftConfig'),
+  applyExit:action('applyExit'),setPunchPackets:action('setPunchPackets'),rawPunch:action('rawPunch')
+};
+</script>
+<script type="module" src="/src/main.jsx"></script>
+</body></html>

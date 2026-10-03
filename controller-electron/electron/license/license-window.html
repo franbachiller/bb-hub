@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BB Hub — Licencia</title>
+<style>
+  @font-face { font-family: Inter; src: url('../ring-board/public/fonts/inter-latin-400-normal.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+  @font-face { font-family: Inter; src: url('../ring-board/public/fonts/inter-latin-600-normal.woff2') format('woff2'); font-weight: 600; font-display: swap; }
+  @font-face { font-family: Inter; src: url('../ring-board/public/fonts/inter-latin-700-normal.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+  @font-face { font-family: 'Geist Mono'; src: url('../ring-board/public/fonts/geist-mono-latin-400-normal.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+  :root {
+    color-scheme: dark;
+    --paper: #111111;
+    --ink: #f0f0f0;
+    --ink-2: #b6b6b6;
+    --muted: #a0a0a0;
+    --rule: #2c2c2c;
+    --control-rule: #666666;
+    --error: #ff8c87;
+    --font: Inter, 'Segoe UI', sans-serif;
+    --mono: 'Geist Mono', 'Cascadia Code', monospace;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-6: 24px;
+    --space-8: 32px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--paper); }
+  body { color: var(--ink); font-family: var(--font); font-size: 14px; -webkit-font-smoothing: antialiased; user-select: none; }
+  .window { height: 100%; border: 1px solid var(--rule); display: flex; flex-direction: column; }
+  .bar { flex: 0 0 48px; display: flex; align-items: center; justify-content: space-between; padding-left: var(--space-8); -webkit-app-region: drag; }
+  .brand { display: flex; align-items: center; gap: var(--space-2); }
+  .brand b { font-size: 13px; font-weight: 600; }
+  .brand img { width: 24px; height: 28px; object-fit: contain; }
+  .controls { display: flex; align-self: stretch; -webkit-app-region: no-drag; }
+  button { font-family: var(--font); }
+  .ctl { width: 40px; border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+  .ctl:hover { background: #242424; color: var(--ink); }
+  .ctl.close:hover { background: #982d28; color: #ffffff; }
+  .ctl svg { width: 12px; height: 12px; }
+  main { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-6) var(--space-8) var(--space-8); scrollbar-width: thin; scrollbar-color: #555 var(--paper); }
+  h2 { font-size: 24px; font-weight: 600; line-height: 1.25; letter-spacing: -0.02em; margin-bottom: var(--space-2); }
+  .sub { color: var(--ink-2); line-height: 1.55; margin-bottom: var(--space-6); }
+  label { display: block; color: var(--ink-2); font-size: 12px; line-height: 1.5; margin-bottom: var(--space-2); }
+  input { width: 100%; height: 40px; padding: 0 var(--space-3); border: 1px solid var(--control-rule); border-radius: 6px; background: var(--paper); color: var(--ink); font-family: var(--mono); font-size: 13px; user-select: text; }
+  input::placeholder { color: #8c8c8c; }
+  input[aria-invalid="true"] { border-color: var(--error); }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+  .ctl:focus-visible { outline-offset: -5px; }
+  .row { display: flex; gap: var(--space-2); margin-top: var(--space-6); }
+  .btn { height: 36px; flex: 1; padding: 0 var(--space-4); border: 1px solid transparent; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; -webkit-app-region: no-drag; }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .primary { background: var(--ink); color: var(--paper); }
+  .primary:hover:not(:disabled) { background: #d4d4d4; }
+  .ghost { flex: 0 0 auto; border-color: var(--control-rule); background: transparent; color: var(--ink-2); }
+  .ghost:hover:not(:disabled) { background: #242424; color: var(--ink); }
+  .btn:disabled { opacity: .55; cursor: default; }
+  .msg { margin-top: var(--space-3); color: var(--ink-2); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; user-select: text; }
+  .msg:empty { display: none; }
+  .msg.err { color: var(--error); border-left: 2px solid var(--error); padding-left: var(--space-3); }
+  .meta { margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--rule); color: var(--muted); font-size: 12px; line-height: 1.5; user-select: text; }
+  .meta dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-1) var(--space-4); }
+  .meta dd { color: var(--ink-2); text-align: right; overflow-wrap: anywhere; }
+  .mono { font-family: var(--mono); }
+  .hidden { display: none !important; }
+  @media (max-width: 360px) { .bar { padding-left: var(--space-6); } main { padding-left: var(--space-6); padding-right: var(--space-6); } input { font-size: 11px; } h2 { font-size: 22px; } }
+  @media (prefers-reduced-motion: reduce) { .btn:active:not(:disabled) { transform: none; } }
+</style>
+</head>
+<body>
+  <div class="window">
+    <header class="bar">
+      <div class="brand"><img src="../assets/icon.png" alt="" aria-hidden="true" draggable="false" /><b>BB Hub</b></div>
+      <div class="controls">
+        <button class="ctl" id="btnMin" title="Minimizar" aria-label="Minimizar">
+          <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 5h8" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+        <button class="ctl close" id="btnClose" title="Cerrar" aria-label="Cerrar">
+          <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+      </div>
+    </header>
+    <main>
+      <section id="activate" aria-labelledby="activateTitle">
+        <h2 id="activateTitle">Activa tu licencia</h2>
+        <p class="sub">Introduce tu clave para usar BB Hub en este equipo.</p>
+        <label for="key">Clave de licencia</label>
+        <input id="key" autocomplete="off" spellcheck="false" autocapitalize="off" aria-describedby="msgActivate" placeholder="Pega tu clave de licencia" />
+        <div class="row"><button class="btn primary" id="btnActivate">Activar</button></div>
+        <p class="msg" id="msgActivate" role="status" aria-live="polite" aria-atomic="true"></p>
+      </section>
+      <section id="locked" class="hidden" aria-labelledby="lockTitle">
+        <h2 id="lockTitle">Licencia inactiva</h2>
+        <p class="sub" id="lockText">Esta licencia ya no está activa en este equipo.</p>
+        <div class="row">
+          <button class="btn primary" id="btnRetry">Reintentar</button>
+          <button class="btn ghost" id="btnReenter">Otra clave</button>
+        </div>
+        <p class="msg" id="msgLocked" role="status" aria-live="polite" aria-atomic="true"></p>
+      </section>
+      <div class="meta hidden" id="meta"></div>
+    </main>
+  </div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const api = window.bbLicense;
+
+  function show(mode) {
+    $("activate").classList.toggle("hidden", mode !== "activate");
+    $("locked").classList.toggle("hidden", mode !== "locked");
+  }
+  function setMsg(el, text, kind) {
+    el.className = "msg " + (kind || "");
+    el.setAttribute("role", kind === "err" ? "alert" : "status");
+    el.setAttribute("aria-live", kind === "err" ? "assertive" : "polite");
+    el.textContent = text || "";
+  }
+  function maskKey(k) { return (!k || k.length < 10) ? (k || "") : k.slice(0, 6) + "…" + k.slice(-4); }
+  function renderMeta(info) {
+    const meta = $("meta");
+    meta.replaceChildren();
+    if (!info || !info.key) { meta.classList.add("hidden"); return; }
+    const exp = info.expiry ? new Date(info.expiry * 1000).toLocaleDateString() : "Perpetua";
+    const list = document.createElement("dl");
+    const rows = [["Licencia", maskKey(info.key), "mono"], ...(info.email ? [["Cuenta", info.email]] : []), ["Vence", exp]];
+    for (const [label, value, className] of rows) {
+      const term = document.createElement("dt");
+      const detail = document.createElement("dd");
+      term.textContent = label;
+      detail.textContent = value;
+      if (className) detail.className = className;
+      list.append(term, detail);
+    }
+    meta.append(list);
+    meta.classList.remove("hidden");
+  }
+
+  const LOCK_TEXT = {
+    REVOKED: ["Licencia revocada", "Esta licencia fue dada de baja. Si crees que es un error, contacta al proveedor."],
+    EXPIRED: ["Licencia vencida", "El período de tu licencia terminó. Renuévala para seguir usando BB Hub."],
+    SUSPENDED: ["Licencia suspendida", "Tu licencia está suspendida temporalmente. Contacta al proveedor."],
+    GRACE_OVER: ["Sin conexión", "BB Hub no pudo validar la licencia. Conéctate a internet e inténtalo de nuevo."],
+    NO_CONFIG: ["Copia no válida", "Esta copia no tiene datos de producto."],
+    ERROR: ["No se pudo validar", "Ocurrió un error al validar la licencia."]
+  };
+  function presentLocked(state) {
+    const [t, d] = LOCK_TEXT[state] || LOCK_TEXT.ERROR;
+    $("lockTitle").textContent = t;
+    $("lockText").textContent = d;
+    show("locked");
+  }
+
+  async function activate() {
+    if ($("btnActivate").disabled) return;
+    const key = $("key").value.trim();
+    if (!key) {
+      $("key").setAttribute("aria-invalid", "true");
+      setMsg($("msgActivate"), "Introduce una clave.", "err");
+      $("key").focus();
+      return;
+    }
+    $("key").removeAttribute("aria-invalid");
+    $("btnActivate").disabled = true;
+    $("btnActivate").textContent = "Activando…";
+    $("activate").setAttribute("aria-busy", "true");
+    setMsg($("msgActivate"), "");
+    try {
+      const res = await api.activate(key);
+      if (res && res.ok) setMsg($("msgActivate"), "Licencia activada. Abriendo BB Hub…", "ok");
+      else {
+        $("key").setAttribute("aria-invalid", "true");
+        setMsg($("msgActivate"), (res && res.reason) || "No se pudo activar.", "err");
+      }
+    } catch {
+      setMsg($("msgActivate"), "No se pudo activar. Inténtalo de nuevo en un momento.", "err");
+    } finally {
+      $("btnActivate").disabled = false;
+      $("btnActivate").textContent = "Activar";
+      $("activate").removeAttribute("aria-busy");
+    }
+  }
+  async function retry() {
+    if ($("btnRetry").disabled) return;
+    $("btnRetry").disabled = true;
+    $("btnReenter").disabled = true;
+    $("btnRetry").textContent = "Validando…";
+    $("locked").setAttribute("aria-busy", "true");
+    setMsg($("msgLocked"), "");
+    try {
+      const res = await api.recheck();
+      if (res && res.ok) {
+        setMsg($("msgLocked"), "Licencia validada. Abriendo BB Hub…", "ok");
+        return;
+      }
+      const [, d] = LOCK_TEXT[res && res.state] || LOCK_TEXT.ERROR;
+      setMsg($("msgLocked"), d, "err");
+    } catch {
+      setMsg($("msgLocked"), "No se pudo validar. Inténtalo de nuevo en un momento.", "err");
+    } finally {
+      $("btnRetry").disabled = false;
+      $("btnReenter").disabled = false;
+      $("btnRetry").textContent = "Reintentar";
+      $("locked").removeAttribute("aria-busy");
+    }
+  }
+  function init(payload) {
+    renderMeta(payload && payload.info);
+    if (payload && payload.mode === "locked") presentLocked(payload.state);
+    else { show("activate"); setTimeout(() => $("key").focus(), 60); }
+  }
+  $("btnActivate").addEventListener("click", activate);
+  $("key").addEventListener("keydown", (e) => { if (e.key === "Enter") activate(); });
+  $("key").addEventListener("input", () => $("key").removeAttribute("aria-invalid"));
+  $("btnRetry").addEventListener("click", retry);
+  $("btnReenter").addEventListener("click", () => {
+    show("activate");
+    setMsg($("msgActivate"), "");
+    $("key").removeAttribute("aria-invalid");
+    setTimeout(() => $("key").focus(), 40);
+  });
+  $("btnMin").addEventListener("click", () => api.minimize());
+  $("btnClose").addEventListener("click", () => api.quit());
+  api.onState((payload) => init(payload));
+  api.onLocked((state) => presentLocked(state));
+  api.ready();
+</script>
+</body>
+</html>

@@ -1,0 +1,38 @@
+# Dependencies, generated builds and local sessions
+**/node_modules/
+**/__pycache__/
+**/*.log
+**/*.pyc
+CONFIGS/
+tmp/
+workbench/
+win-unpacked/
+official_client/
+DISTRIBUCION/
+RELEASES/
+tools/ffdec/
+controller-electron/.hallmark/
+controller-electron/.playwright-cli/
+controller-electron/BB Hub/
+controller-electron/dist/
+controller-electron/dist-next/
+controller-electron/dist-release/
+controller-electron/dist-ui/
+controller-electron/protected/
+controller-electron/release/
+ring-board/dist/
+ring-board/data/
+ring-board/preview/
+native-client/bin/
+punch_proxy/analysis/
+punch_proxy/data/
+punch_proxy/logs/
+punch_proxy/logs_test/
+docs/fiddler vps.txt
+# Credentials and signing material never belong in Git
+**/.env
+**/.env.*
+**/*.pfx
+**/*.p12
+**/*.pem
+**/*license-key*

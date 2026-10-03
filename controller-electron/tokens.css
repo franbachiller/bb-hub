@@ -1,0 +1,76 @@
+/* Hallmark · tokens · design-system: design.md (BB Hub) · theme: custom (crimson on dark paper)
+ * Single source of truth for colour, type, space, motion. Mirrored verbatim in
+ * ring-board/public/tokens.css so the embedded board shares the system.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Paper — dark, tinted toward the crimson anchor (hue 20) */
+  --color-paper:        oklch(14.5% 0.010 20);
+  --color-paper-2:      oklch(17.5% 0.011 20);
+  --color-paper-3:      oklch(21% 0.012 20);
+  --color-rule:         oklch(27% 0.012 20);
+  --color-rule-2:       oklch(50% 0.012 20);
+
+  /* Ink */
+  --color-ink:          oklch(95% 0.006 20);
+  --color-ink-2:        oklch(78% 0.010 20);
+  --color-muted:        oklch(64% 0.012 20);
+
+  /* Accent — crimson. Text/markers use --color-accent; filled surfaces use --color-accent-fill. */
+  --color-accent:       oklch(65% 0.190 22);   /* ≥ 4.5:1 on paper, paper-3 and accent-wash */
+  --color-accent-fill:  oklch(50% 0.190 22);
+  --color-accent-fill-2: oklch(46% 0.180 22);   /* hover: darker, keeps accent-ink ≥ 4.5:1 */
+  --color-accent-ink:   oklch(96% 0.010 20);
+  --color-accent-wash:  oklch(23% 0.055 22);
+  --color-focus:        oklch(70% 0.190 22);
+
+  /* Second (and last) signal — amber, for warnings and "modified" */
+  --color-warn:         oklch(80% 0.140 75);
+  --color-warn-wash:    oklch(24% 0.040 75);
+
+  /* Board (canvas) roles */
+  --color-board-tile:   oklch(29% 0.014 20);   /* ≈ 1.4:1 over paper: the floor reads */
+  --color-board-tile-2: oklch(26% 0.012 20);   /* ≈ 1.3:1 — the two-tone checker */
+  --color-board-rival:  oklch(72% 0.012 20);
+  --color-board-contact: oklch(40% 0.140 22);
+
+  /* Type — Inter (display + body; user's pick), Geist Mono (machine values only) */
+  --font-display: "Inter", "Segoe UI", sans-serif;
+  --font-body:    "Inter", "Segoe UI", sans-serif;
+  --font-mono:    "Geist Mono", "Cascadia Mono", monospace;
+
+  /* Perfect-fourth scale (1.333) anchored at 14 px UI text */
+  --text-xs:  0.75rem;    /* 12   — meta, captions, table heads */
+  --text-sm:  0.875rem;   /* 14   — UI body */
+  --text-md:  1.1667rem;  /* 18.7 — section heads */
+  --text-lg:  1.5556rem;  /* 24.9 — view titles, strip figures */
+  --text-xl:  2.0741rem;  /* 33.2 — readout figures */
+  --text-2xl: 2.7654rem;  /* 44.2 — the one big figure per view */
+
+  /* 4-pt spacing */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs:  0.5rem;
+  --space-sm:  0.75rem;
+  --space-md:  1rem;
+  --space-lg:  1.5rem;
+  --space-xl:  2.5rem;
+  --space-2xl: 4rem;
+
+  --strip-height: 4rem;
+
+  --radius-control: 6px;
+  --radius-surface: 8px;
+  --rule-width: 1px;
+
+  --ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in:     cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 200ms;
+
+  --z-base:    1;
+  --z-raised:  10;
+  --z-sticky:  200;
+}
