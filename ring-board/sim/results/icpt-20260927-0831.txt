@@ -1,0 +1,6 @@
+old   7 rivals, 400 rounds | survive 10% (last one standing 10%) | kills/round 1.27 | k/d 1.41 | alive median 47 s | fights/alive-min 2.13 | moving 67% | 334 s
+      fight types: we 57% | race 31% | both 11% | they 1% | rivals walking 24% of their ticks
+icpt+finals 7 rivals, 400 rounds | survive 9% (last one standing 8%) | kills/round 1.31 | k/d 1.43 | alive median 45 s | fights/alive-min 2.33 | moving 64% | 310 s
+      fight types: race 29% | we 51% | they 1% | both 20% | rivals walking 24% of their ticks
+finals 7 rivals, 400 rounds | survive 12% (last one standing 12%) | kills/round 1.29 | k/d 1.47 | alive median 47 s | fights/alive-min 2.12 | moving 67% | 311 s
+      fight types: we 59% | race 29% | both 11% | they 1% | rivals walking 24% of their ticks

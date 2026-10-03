@@ -1,0 +1,14 @@
+{
+  "name": "bb-native-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cliente nativo Node del protocolo BoomBang HTML5 (sin Electron/CDP)",
+  "scripts": {
+    "connect": "node bin/connect.js",
+    "ring": "node bin/ring.js"
+  },
+  "dependencies": {
+    "ws": "^8.20.0"
+  }
+}

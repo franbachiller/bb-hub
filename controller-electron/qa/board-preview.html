@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ring — plano táctico</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4f1e9; --panel: #f8f6ef; --text: #262923;
+        --muted: #62665c; --line: #d9d8cd; --line-strong: #babcb0;
+        --accent: #a45b37; --good: #506b52; --warn: #8a662e; --danger: #a04436;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: var(--text); background: var(--bg); font: 12px/1.5 "Segoe UI Variable", "Segoe UI", sans-serif; }
+      #app { display: grid; grid-template-columns: 286px minmax(0, 1fr); height: 100vh; overflow: hidden; }
+      #sidebar { display: flex; flex-direction: column; gap: 18px; min-height: 0; padding: 24px 20px; border-right: 1px solid var(--line); overflow: auto; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+      .topbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+      h1 { margin: 0; font: italic 28px/1.15 Georgia, serif; font-weight: 400; letter-spacing: -1.2px; }
+      #arm-btn { width: auto; min-width: 83px; }
+      .chips { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; padding: 0 0 17px; border-bottom: 1px solid var(--line); }
+      .chip .label, .summary-item strong, .timing-field span { display: block; margin-bottom: 4px; font: 10px/1.3 "Segoe UI", sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+      .chip .value { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px/1.4 Consolas, monospace; }
+      .chip.is-good .value { color: var(--good); }
+      .chip.is-warn .value { color: var(--warn); }
+      .chip.is-danger .value { color: var(--danger); }
+      .panel { padding: 0 0 18px; border-bottom: 1px solid var(--line); }
+      .row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 7px; align-items: center; }
+      button, select, input { font: inherit; }
+      button, select, input[type="number"] { min-width: 0; width: 100%; border: 1px solid var(--line-strong); border-radius: 3px; color: var(--text); background: transparent; padding: 8px; }
+      button { min-height: 34px; cursor: pointer; line-height: 1.25; font-size: 11px; transition: background 140ms ease, border-color 140ms ease; }
+      button:hover { background: #e9e6db; border-color: #777c6f; }
+      button:active { background: #dedbce; }
+      button:disabled { cursor: default; opacity: .5; }
+      button.accent { color: #f8f6ef; background: var(--text); border-color: var(--text); }
+      button.accent:hover { background: #444b3e; }
+      button.danger { color: var(--danger); border-color: #cfaa9f; }
+      button.accent.danger { color: #f8f6ef; background: var(--danger); border-color: var(--danger); }
+      :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+      input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px; }
+      input[type="number"], select { font: 12px/1.3 Consolas, monospace; min-height: 32px; padding: 6px; background: var(--panel); }
+      .timing-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; padding: 10px 0; }
+      .timing-field { display: grid; align-content: start; }
+      .timing-field span { letter-spacing: 0; font-size: 10px; text-transform: none; }
+      .muted-note { font-size: 10px; color: var(--muted); line-height: 1.5; }
+      #summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 12px; padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+      .summary-item { min-width: 0; }
+      .summary-item span { display: block; font-size: 11px; overflow-wrap: anywhere; }
+      .summary-item small { display: block; margin-top: 4px; color: var(--muted); font: 10px/1.4 Consolas, monospace; overflow-wrap: anywhere; }
+      .roster-panel { display: grid; gap: 10px; }
+      .roster-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+      .roster-head strong { font-size: 12px; font-weight: 600; }
+      .roster-head span { font-size: 10px; color: var(--muted); text-align: right; }
+      .roster-actions { display: flex; gap: 7px; }
+      .roster-actions button { font-size: 10px; min-height: 28px; padding: 5px 8px; }
+      .roster-table-wrap { max-height: 200px; overflow: auto; scrollbar-width: thin; }
+      .roster-table { width: 100%; border-collapse: collapse; font: 11px/1.4 Consolas, monospace; }
+      .roster-table th, .roster-table td { padding: 7px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+      .roster-table th { position: sticky; top: 0; background: var(--bg); color: var(--muted); font-weight: 400; }
+      .roster-table tr.is-self td { color: var(--good); background: #e9ede2; }
+      .roster-empty { color: var(--muted); font-size: 11px; padding: 10px 0; }
+      details > summary { cursor: pointer; list-style: none; font-size: 12px; padding: 0 0 2px; }
+      details > summary::-webkit-details-marker { display: none; }
+      details > summary::after { content: "+"; float: right; color: var(--accent); font-size: 17px; line-height: 1; }
+      details[open] > summary::after { content: "−"; }
+      .details-body { display: grid; gap: 10px; padding-top: 16px; }
+      label { display: flex; align-items: center; gap: 7px; }
+      pre { margin: 0; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; font: 10px/1.6 Consolas, monospace; }
+      #board-wrap { min-width: 0; min-height: 0; padding: 24px; }
+      #board-panel { display: flex; align-items: center; justify-content: center; height: 100%; min-height: 0; position: relative; padding: 32px 0 24px; overflow: hidden; }
+      #board-panel::before { content: "PLANO DEL RING"; position: absolute; top: 0; left: 0; color: var(--muted); font: 10px/1.3 "Segoe UI", sans-serif; letter-spacing: .14em; }
+      #board-panel::after { content: "POSICIÓN · TRAYECTORIA · CONTACTO"; position: absolute; bottom: 0; left: 0; right: 0; border-top: 1px solid var(--line); padding-top: 10px; color: var(--muted); font: 9px/1.3 Consolas, monospace; letter-spacing: .1em; }
+      #board { display: block; width: auto; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; }
+      @media (max-width: 760px) { #app { grid-template-columns: 248px minmax(0, 1fr); } #sidebar { padding: 18px 14px; } #board-wrap { padding: 18px 14px; } }
+      @media (max-width: 560px) { #app { display: flex; flex-direction: column-reverse; height: auto; overflow: visible; } #sidebar { overflow: visible; border-right: 0; padding: 24px 20px; } #board-wrap { height: 330px; flex-shrink: 0; border-bottom: 1px solid var(--line); } .chips { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+      @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <aside id="sidebar">
+        <div class="topbar">
+          <div>
+            <h1>Ring</h1>
+          </div>
+          <button id="arm-btn" class="accent">Activar</button>
+        </div>
+
+        <div class="chips">
+          <div class="chip">
+            <span class="label">Conexión</span>
+            <span class="value" id="bridge-chip">Sin conexión</span>
+          </div>
+          <div class="chip">
+            <span class="label">Ronda</span>
+            <span class="value" id="round-chip">En espera</span>
+          </div>
+          <div class="chip">
+            <span class="label">Estado</span>
+            <span class="value" id="brain-chip">—</span>
+          </div>
+          <div class="chip">
+            <span class="label">Objetivo</span>
+            <span class="value" id="target-chip">-</span>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="row">
+            <button id="recalc-btn">Recalcular</button>
+            <button id="allow-btn">Marcar combate</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button id="high-power-btn">Potencia: no</button>
+            <button id="move-assist-btn">Asistencia: no</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button id="cadence-btn">Cadencia: no</button>
+            <button id="pulse-btn">Pulsos: no</button>
+          </div>
+          <div class="timing-grid" style="margin-top:8px">
+            <label class="timing-field">
+              <span>Inicio %</span>
+              <input id="timing-start-input" type="number" min="40" max="99" step="1" value="79" />
+            </label>
+            <label class="timing-field">
+              <span>Fin %</span>
+              <input id="timing-end-input" type="number" min="41" max="100" step="1" value="100" />
+            </label>
+            <label class="timing-field">
+              <span>Intervalo</span>
+              <input id="timing-interval-input" type="number" min="1" max="200" step="1" value="33" />
+            </label>
+            <label class="timing-field">
+              <span>Factor</span>
+              <select id="timing-multiplier-input">
+                <option value="1">X1</option>
+                <option value="2">X2</option>
+                <option value="3">X3</option>
+                <option value="4">X4</option>
+              </select>
+            </label>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <span class="muted-note" title="Ventana de ráfaga">Ventana de envío</span>
+            <button id="clear-freeze-btn">En directo</button>
+          </div>
+          <div class="row" style="margin-top:8px">
+            <button id="reset-btn" class="danger">Reiniciar</button>
+            <button id="ignore-btn">Ignorar escena</button>
+          </div>
+        </div>
+
+        <div id="summary"></div>
+
+        <div class="panel roster-panel">
+          <div class="roster-head">
+            <strong>Jugadores</strong>
+            <span id="roster-meta">Esperando jugadores</span>
+          </div>
+          <div class="roster-actions">
+            <button id="copy-roster-tsv-btn">Copiar TSV</button>
+            <button id="copy-roster-json-btn">Copiar JSON</button>
+          </div>
+          <div class="roster-table-wrap">
+            <div id="roster-table" class="roster-empty">Sin datos de escena</div>
+          </div>
+        </div>
+
+        <details class="panel">
+          <summary>Avanzado</summary>
+          <div class="details-body">
+            <div class="row">
+              <button id="replay-btn">Repetir 3 s</button>
+              <button id="stop-replay-btn">Detener</button>
+            </div>
+            <div class="row">
+              <button id="clear-replay-btn">Vaciar repetición</button>
+              <span class="muted-note">Historial de 3 segundos</span>
+            </div>
+            <div class="row">
+              <button id="reset-memory-btn">Borrar memoria</button>
+              <span class="muted-note">Diagnóstico y recuperación</span>
+            </div>
+            <label><input type="checkbox" id="show-hash" checked /> Identificador de escena</label>
+            <label><input type="checkbox" id="show-plan" checked /> Plan de movimiento</label>
+            <label><input type="checkbox" id="show-danger" checked /> Peligro</label>
+            <label><input type="checkbox" id="show-vectors" /> Vectores</label>
+            <pre id="status"></pre>
+          </div>
+        </details>
+      </aside>
+
+      <main id="board-wrap">
+        <div id="board-panel">
+          <canvas id="board" width="960" height="720" aria-label="Plano táctico del Ring. Las posiciones se actualizan al recibir una escena."></canvas>
+        </div>
+      </main>
+    </div>
+    <script>
+      // Isolated design fixture: never opens the live Board WebSocket.
+      window.__boardCommands = [];
+      window.WebSocket = class extends EventTarget {
+        static OPEN = 1;
+        readyState = 1;
+        constructor() { super(); setTimeout(() => this.dispatchEvent(new Event('open')), 0); }
+        send(value) { window.__boardCommands.push(JSON.parse(value)); }
+        close() { this.readyState = 3; }
+      };
+    </script>
+    <script type="module" src="/electron/ring-board/dist/web/app.js"></script>
+  </body>
+</html>

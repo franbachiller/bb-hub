@@ -1,0 +1,11 @@
+== Finals 1v1, rival = finals model (1000 each) ==
+== Finals 1v1, rival = general model (1000 each) ==
+old   1 rivals, 1000 rounds | survive 62% (last one standing 62%) | kills/round 0.62 | k/d 1.62 | alive median 16 s | fights/alive-min 3.59 | moving 24% | 329 s
+      finals won 619 of 1000 (61.9%) | we locked: 456-264 | rival locked: 163-117
+      fight types: they 3% | we 64% | race 29% | both 5% | rivals walking 54% of their ticks
+finals 1 rivals, 1000 rounds | survive 68% (last one standing 68%) | kills/round 0.68 | k/d 2.12 | alive median 17 s | fights/alive-min 3.39 | moving 28% | 15 s
+      finals won 679 of 1000 (67.9%) | rival locked: 187-93 | we locked: 492-228
+      fight types: we 81% | both 19% | they 0% | rivals walking 56% of their ticks
+== Full rounds, 7 rivals (300 each): old vs old + finals brain ==
+finals 7 rivals, 300 rounds | survive 14% (last one standing 13%) | kills/round 1.33 | k/d 1.54 | alive median 50 s | fights/alive-min 2.12 | moving 68% | 912 s
+      fight types: race 29% | we 59% | both 11% | they 0% | rivals walking 23% of their ticks

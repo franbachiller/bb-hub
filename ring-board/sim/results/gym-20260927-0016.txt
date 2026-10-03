@@ -1,0 +1,19 @@
+== Finals 1v1, rival = finals model (2000 each) ==
+old   1 rivals, 2000 rounds | survive 60% (last one standing 60%) | kills/round 0.60 | k/d 1.50 | alive median 16 s | fights/alive-min 3.52 | moving 25% | 1630 s
+      finals won 1201 of 2000 (60.0%) | we locked: 840-548 | rival locked: 361-251
+      fight types: they 6% | we 57% | race 25% | both 11% | rivals walking 75% of their ticks
+finals 1 rivals, 2000 rounds | survive 67% (last one standing 67%) | kills/round 0.67 | k/d 2.03 | alive median 18 s | fights/alive-min 3.08 | moving 34% | 16 s
+      finals won 1341 of 2000 (67.0%) | rival locked: 414-198 | we locked: 927-461
+      fight types: we 62% | both 38% | they 0% | race 0% | rivals walking 76% of their ticks
+== Finals 1v1, rival = general model (2000 each) ==
+old   1 rivals, 2000 rounds | survive 61% (last one standing 61%) | kills/round 0.61 | k/d 1.59 | alive median 16 s | fights/alive-min 3.62 | moving 23% | 569 s
+      finals won 1227 of 2000 (61.4%) | we locked: 869-519 | rival locked: 358-254
+      fight types: they 2% | we 62% | race 31% | both 5% | rivals walking 53% of their ticks
+finals 1 rivals, 2000 rounds | survive 67% (last one standing 67%) | kills/round 0.67 | k/d 2.05 | alive median 16 s | fights/alive-min 3.38 | moving 29% | 12 s
+      finals won 1344 of 2000 (67.2%) | we locked: 940-448 | rival locked: 404-208
+      fight types: we 81% | both 19% | they 0% | race 0% | rivals walking 55% of their ticks
+== Full rounds, 7 rivals (1000 each): old vs old + finals brain ==
+old   7 rivals, 1000 rounds | survive 9% (last one standing 9%) | kills/round 1.28 | k/d 1.41 | alive median 49 s | fights/alive-min 2.18 | moving 66% | 974 s
+      fight types: we 58% | race 30% | both 11% | they 1% | rivals walking 24% of their ticks
+finals 7 rivals, 1000 rounds | survive 12% (last one standing 12%) | kills/round 1.31 | k/d 1.49 | alive median 49 s | fights/alive-min 2.17 | moving 66% | 1068 s
+      fight types: we 61% | race 28% | both 11% | they 1% | rivals walking 24% of their ticks
