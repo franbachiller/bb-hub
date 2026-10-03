@@ -24,6 +24,12 @@ const RUNTIME_PATH = path.join(__dirname, "flash_runtime.page.js");
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Code for the game page goes as source text. The packaged launcher is V8
+// bytecode (scripts/protect.cjs): its functions keep no source, so Playwright
+// cannot serialize an arrow function and the page would get an empty body.
+const inPage = (target, body) => target.evaluate(`(async () => { ${body} })()`);
+const arg = (value) => JSON.stringify(value);
+
 async function requestJson(url, options) {
   let response;
   try {
@@ -234,16 +240,22 @@ class GameLauncher extends EventEmitter {
 
   async waitForGame(page) {
     const deadline = Date.now() + READY_TIMEOUT_MS;
+    let lastError = "";
     while (Date.now() < deadline) {
       const frame = this.findGameFrame(page);
       if (frame) {
-        const loaded = await frame.evaluate(() => performance.getEntriesByType("resource")
-          .some((entry) => /\/betahtml5\/_astro\/.*\.js(?:[?#].*)?$/.test(entry.name))).catch(() => false);
+        const loaded = await inPage(frame, String.raw`return performance.getEntriesByType("resource")
+          .some((entry) => /\/betahtml5\/_astro\/.*\.js(?:[?#].*)?$/.test(entry.name));`).catch((error) => {
+          if (error.message !== lastError) this.log(`Juego: no pude leer el juego: ${error.message}`);
+          lastError = error.message;
+          return false;
+        });
         if (loaded) return frame;
       }
       await sleep(500);
     }
-    throw new Error("El juego tardó demasiado en cargar.");
+    const frames = page.frames().map((frame) => frame.url()).join(", ");
+    throw new Error(`El juego tardó demasiado en cargar.${lastError ? ` Último error: ${lastError}` : ""} (marcos: ${frames || "ninguno"})`);
   }
 
   async attach(username, child) {
@@ -260,7 +272,7 @@ class GameLauncher extends EventEmitter {
       log: (line) => this.log(line),
       onMessage: (msg) => { void this.deliver(msg); },
       onStatus: ({ connected }) => {
-        this.gameFrame?.evaluate((value) => window.__BBFlashRuntime?.setHubConnected?.(value), Boolean(connected)).catch(() => {});
+        if (this.gameFrame) inPage(this.gameFrame, `window.__BBFlashRuntime?.setHubConnected?.(${arg(Boolean(connected))});`).catch(() => {});
       }
     });
     const relay = (obj) => {
@@ -280,7 +292,7 @@ class GameLauncher extends EventEmitter {
     // flash_runtime never installs twice in a page: a game left open from an
     // earlier session keeps its old runtime (timing, coco guard) whatever Hub
     // connects. Reload the game when the loaded runtime is not this one.
-    const loadedHash = await frame.evaluate(() => (window.__BBFlashRuntime ? window.__bbHubRuntimeHash || "otro" : null)).catch(() => null);
+    const loadedHash = await inPage(frame, `return window.__BBFlashRuntime ? window.__bbHubRuntimeHash || "otro" : null;`).catch(() => null);
     if (loadedHash && loadedHash !== runtimeHash) {
       this.log("Juego: tenía cargado otro runtime; recargo el juego para usar el de este Hub.");
       await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
@@ -288,24 +300,23 @@ class GameLauncher extends EventEmitter {
     }
     // The client remembers app mode (bb.isNativeApp) and would keep reporting
     // android-app: clear it and reload once, as launch_hub_client.js does.
-    const sticky = await frame.evaluate(() => { try { return localStorage.getItem("bb.isNativeApp"); } catch { return null; } }).catch(() => null);
+    const sticky = await inPage(frame, `try { return localStorage.getItem("bb.isNativeApp"); } catch { return null; }`).catch(() => null);
     if (sticky === "1") {
-      await frame.evaluate(() => { try { localStorage.removeItem("bb.isNativeApp"); } catch {} }).catch(() => {});
+      await inPage(frame, `try { localStorage.removeItem("bb.isNativeApp"); } catch {}`).catch(() => {});
       await page.reload({ waitUntil: "domcontentloaded", timeout: 60000 }).catch(() => {});
       frame = await this.waitForGame(page);
     }
 
-    await page.evaluate(() => {
+    await inPage(page, `
       if (window.__bbHubRelayInstalled) return;
       window.__bbHubRelayInstalled = true;
       window.addEventListener("message", (event) => {
         const data = event.data;
         if (!data || data.source !== "bb-flash-runtime" || data.type !== "hub_out") return;
         try { if (typeof window.__bbHubSend === "function") window.__bbHubSend(data.payload); } catch {}
-      });
-    });
+      });`);
 
-    const inject = (target) => target.evaluate(({ ringSource, flashSource, runtimeHash }) => {
+    const inject = (target) => inPage(target, `
       if (typeof window.__bbHubSend !== "function") {
         window.__bbHubSend = (payload) => {
           window.parent.postMessage({ source: "bb-flash-runtime", type: "hub_out", payload }, "*");
@@ -313,10 +324,9 @@ class GameLauncher extends EventEmitter {
       }
       // ring_scene first so __BBFlashRingScene is available to flash_runtime.
       const fresh = !window.__BBFlashRuntime;
-      (0, eval)(ringSource);
-      (0, eval)(flashSource);
-      if (fresh) window.__bbHubRuntimeHash = runtimeHash;
-    }, { ringSource, flashSource, runtimeHash });
+      (0, eval)(${arg(ringSource)});
+      (0, eval)(${arg(flashSource)});
+      if (fresh) window.__bbHubRuntimeHash = ${arg(runtimeHash)};`);
     await inject(frame);
     // Deliver from now on: the Hub answers the runtime's first messages (configs,
     // allies) while boot() is still running.
@@ -331,18 +341,18 @@ class GameLauncher extends EventEmitter {
       frame = this.findGameFrame(page) || frame;
       this.gameFrame = frame;
       try {
-        boot = await frame.evaluate(({ selfUsername }) => window.__BBFlashRuntime.boot({ selfUsername, timeoutMs: 8000 }), { selfUsername: username });
+        boot = await inPage(frame, `return window.__BBFlashRuntime.boot({ selfUsername: ${arg(username)}, timeoutMs: 8000 });`);
         if (boot?.ready) break;
         lastError = "el juego todavía no está listo";
       } catch (error) {
         lastError = error.message || String(error);
-        const hasRuntime = await frame.evaluate(() => Boolean(window.__BBFlashRuntime?.boot)).catch(() => false);
+        const hasRuntime = await inPage(frame, `return Boolean(window.__BBFlashRuntime?.boot);`).catch(() => false);
         if (!hasRuntime) await inject(frame).catch(() => {});
       }
       await sleep(1000);
     }
     if (!boot?.ready) throw new Error(`No se pudo conectar el Hub con el juego (${lastError || "tiempo agotado"}).`);
-    await frame.evaluate((value) => window.__BBFlashRuntime?.setHubConnected?.(value), Boolean(this.bridge.connected)).catch(() => {});
+    await inPage(frame, `window.__BBFlashRuntime?.setHubConnected?.(${arg(Boolean(this.bridge.connected))});`).catch(() => {});
     this.log(`Juego: runtime ${boot.bridgeBuild || "?"} listo.`);
     this.setState("ready", "Juego conectado.");
 
@@ -357,7 +367,7 @@ class GameLauncher extends EventEmitter {
   async deliver(msg) {
     if (!this.gameFrame) return;
     try {
-      await this.gameFrame.evaluate((message) => window.__BBFlashRuntime?.onHubMessage?.(message), msg);
+      await inPage(this.gameFrame, `window.__BBFlashRuntime?.onHubMessage?.(${arg(msg)});`);
     } catch (error) {
       this.log(`Juego: no se pudo entregar ${msg?.type || "?"}: ${error.message}`);
     }
