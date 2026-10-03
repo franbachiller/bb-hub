@@ -19,6 +19,10 @@ cliente, así que el Hub instalado quedaba esperando en el `:9999`.
   aplicar aunque el Hub fuera el correcto. La barra lateral muestra el build
   del runtime conectado.
 - Diagnósticos de combate apagados en la versión distribuida.
+- Inicio muestra nuestro personaje (diseño traído de la rama de Gemini): el
+  lanzador lee `#BoomBangFlowerPowerAvatar` del juego cada 4 s, fuera del
+  runtime (Gemini lo mandaba en cada `state`, 4 veces por segundo, dentro del
+  camino del timing). Un `blob:` sale como data URL.
 - `npm run sync-runtime` copia `HTML5/hub_runtime/{flash_runtime,ring_scene}.page.js`
   a `electron/game/`; `protect` imprime el build del runtime que empaqueta y lo
   ofusca sin string array (renombrado solamente, para no tocar el timing).
