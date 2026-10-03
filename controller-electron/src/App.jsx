@@ -121,6 +121,10 @@ const stubApi = {
   rawPunch: async () => {},
   stopModes: async () => {},
   clearLogs: async () => {},
+  launchGame: async () => {},
+  submitGameCode: async () => {},
+  saveGameAccount: async () => {},
+  forgetGameAccount: async () => {},
   onSnapshot: () => () => {}
 };
 
@@ -209,7 +213,7 @@ function App() {
         <nav className="rail-nav" aria-label="Navegación principal">
           {navItems.map((item) => { const Icon = item.icon; return <button key={item.id} className={`rail-link ${activeTab === item.id ? "is-current" : ""}`} aria-current={activeTab === item.id ? "page" : undefined} onClick={() => setActiveTab(item.id)} title={item.id === "timing" && timingOn ? `${item.label} · activo` : item.label}><Icon aria-hidden="true" size={17} strokeWidth={1.6} /><span className="rail-label">{item.label}</span>{item.id === "timing" && timingOn && <span className="rail-live">activo</span>}</button>; })}
         </nav>
-        <p className="rail-foot"><span>Controller</span><span className="mono" title={snapshot.controllerBuild}>{snapshot.controllerBuild !== "-" ? snapshot.controllerBuild : "—"}</span></p>
+        <p className="rail-foot"><span>Controller</span><span className="mono" title={snapshot.controllerBuild}>{snapshot.controllerBuild !== "-" ? snapshot.controllerBuild : "—"}</span><span>Runtime</span><span className="mono" title={snapshot.bridgeBuild}>{snapshot.connected && snapshot.bridgeBuild !== "-" ? snapshot.bridgeBuild : "—"}</span></p>
       </aside>
       <div className="main">
         <header className="strip" aria-busy={loading}>
@@ -254,6 +258,7 @@ function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, applyTim
   const auto = snapshot.tick?.auto;
   return <>
     <PageHeading title="Inicio" description={selfPlayer ? <>Sesión de <strong>{selfPlayer.name}</strong> · {snapshot.connected ? "cliente conectado" : "cliente sin conexión"}.</> : "Esperando al cliente del juego."} action={<button className="btn" onClick={() => setActiveTab("timing")}>Abrir Timing <ArrowUpRight aria-hidden="true" size={15} /></button>} />
+    <GameSection game={snapshot.game} connected={snapshot.connected} runAction={runAction} />
     <section className="section" aria-label="Modos de operación">
       <h2 id="modes-title" className="section-title">Modos</h2>
       <div className="spec">
@@ -275,6 +280,51 @@ function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, applyTim
       </section>
     </div>
   </>;
+}
+
+// The Hub opens BoomBang itself (it used to take ABRIR_HUB_Y_CONTROLLER.cmd).
+const GAME_BUSY = ["login", "launching", "injecting"];
+function GameSection({ game, connected, runAction }) {
+  const [editing, setEditing] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  if (!game) return null;
+  const busy = GAME_BUSY.includes(game.state);
+  const showForm = !game.hasAccount || editing;
+  const saveAndLaunch = async () => {
+    if (await runAction(() => api.saveGameAccount(username, password))) {
+      setPassword("");
+      setEditing(false);
+      runAction(() => api.launchGame());
+    }
+  };
+  const meta = game.state === "ready" || connected ? "conectado" : busy ? "abriendo" : game.state === "twofa" ? "verificación" : "cerrado";
+  return <section className="section" aria-labelledby="game-title">
+    <h2 id="game-title" className="section-title">Juego <span className="section-meta">{meta}</span></h2>
+    <div className="spec">
+      {!game.clientFound && <Setting title="BoomBang HTML5 no está instalado" text="Instala el launcher oficial de BoomBang y abre el juego una vez desde ahí. Después vuelve al Hub." />}
+      {showForm ? <Setting title="Cuenta de BoomBang" text="Se guarda cifrada en este equipo. El Hub la usa para abrir el juego y conectarse solo." stack>
+        <form className="controls" onSubmit={(e) => { e.preventDefault(); saveAndLaunch(); }}>
+          <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Usuario" autoComplete="username" aria-label="Usuario de BoomBang" />
+          <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Contraseña" autoComplete="current-password" aria-label="Contraseña de BoomBang" />
+          <button className="btn btn-primary" type="submit" disabled={!username.trim() || !password}>Guardar y abrir el juego</button>
+          {game.hasAccount && <button className="btn btn-quiet" type="button" onClick={() => setEditing(false)}>Cancelar</button>}
+          {game.hasAccount && <button className="btn btn-quiet" type="button" onClick={async () => { if (await runAction(() => api.forgetGameAccount())) setEditing(false); }}>Borrar cuenta guardada</button>}
+        </form>
+      </Setting> : game.state === "twofa" ? <Setting title="Código de verificación" text="BoomBang te envió un código. Escríbelo para terminar de iniciar sesión." stack>
+        <form className="controls" onSubmit={(e) => { e.preventDefault(); runAction(() => api.submitGameCode(code)).then(() => setCode("")); }}>
+          <input className="input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Código" autoComplete="one-time-code" inputMode="numeric" aria-label="Código de verificación" />
+          <button className="btn btn-primary" type="submit" disabled={!code.trim()}>Verificar</button>
+        </form>
+      </Setting> : <Setting title={game.state === "ready" ? "Juego conectado" : busy ? "Abriendo el juego" : "Abrir el juego"} text={<>{game.state === "ready" ? "El Hub está conectado al juego." : game.message || (connected ? "El cliente está conectado al Hub." : "El Hub abre BoomBang con tu cuenta y se conecta solo.")} Cuenta: <strong>{game.username}</strong>.</>}>
+        <div className="controls">
+          {game.state !== "ready" && <button className="btn btn-primary" disabled={busy || !game.clientFound} onClick={() => runAction(() => api.launchGame())}>{busy ? "Abriendo…" : "Abrir juego"}</button>}
+          <button className="btn btn-quiet" disabled={busy} onClick={() => { setUsername(game.username); setEditing(true); }}>Cambiar cuenta</button>
+        </div>
+      </Setting>}
+    </div>
+  </section>;
 }
 
 function Operation({ title, description, checked, onChange, onOpen, tone, disabled }) {
@@ -335,7 +385,7 @@ function TimingView({ snapshot, applyTiming, runAction }) {
         <AdvancedTiming snapshot={snapshot} runAction={runAction} />
       </div>
       <aside className="col-side" aria-label="Lectura de sesión">
-        <section className="panel"><h2 className="section-title">Actualizaciones</h2><p className="note">Versión {snapshot.updates?.version || "0.1.2"}. Se comprueban automáticamente al abrir el Hub.</p><p className="note" role="status">{snapshot.updates?.message}</p><button className="btn" disabled={["checking", "downloading", "installing"].includes(snapshot.updates?.status)} onClick={() => runAction(() => api.checkUpdates())}>Buscar actualizaciones</button></section>
+        <section className="panel"><h2 className="section-title">Actualizaciones</h2><p className="note">Versión {snapshot.updates?.version || "0.1.3"}. Se comprueban automáticamente al abrir el Hub.</p><p className="note" role="status">{snapshot.updates?.message}</p><button className="btn" disabled={["checking", "downloading", "installing"].includes(snapshot.updates?.status)} onClick={() => runAction(() => api.checkUpdates())}>Buscar actualizaciones</button></section>
         <section className="panel">
           <h2 className="section-title">Lectura de sesión <span className="section-meta">{on ? "activo" : "en pausa"}</span></h2>
           <div className="lead-figure"><span>Llegada estimada</span><b className="num">{auto ? signedMs(auto.aimMs) : "—"}</b></div>

@@ -1,8 +1,15 @@
 # BB Hub
 
 Código privado del Hub, Board y componentes auxiliares. Versión entregable:
-**0.1.2 para Windows x64**. Licencias Basic/Pro mediante Cryptlex; el permiso
+**0.1.3 para Windows x64**. Licencias Basic/Pro mediante Cryptlex; el permiso
 `ring_board=true` habilita el bot.
+
+Desde 0.1.3 el Hub abre el juego por su cuenta: inicia sesión con la cuenta de
+BoomBang guardada (cifrada con DPAPI), abre `BoomBangHTML5.exe` con CDP, inyecta
+el runtime de `controller-electron/electron/game/` y lo conecta al `:9999`.
+Ya no hacen falta `ABRIR_HUB_Y_CONTROLLER.cmd`, Node ni Playwright en el equipo
+del cliente. El runtime se desarrolla en `HTML5/hub_runtime`; antes de compilar,
+`npm run sync-runtime` copia la versión actual al Hub.
 
 ## Compilar
 
