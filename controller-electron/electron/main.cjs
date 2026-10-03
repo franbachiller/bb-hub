@@ -5,6 +5,7 @@ const { ControllerCore } = require("./controller-core.cjs");
 const gate = require("./license/gate.cjs");
 const { normalizeHotkey } = require("./hotkey.cjs");
 const { createUpdater } = require("./updater.cjs");
+const { GameLauncher } = require("./game/game-launcher.cjs");
 
 const APP_ICON = path.join(__dirname, "assets", process.platform === "win32" ? "icon.ico" : "icon.png");
 
@@ -20,6 +21,7 @@ let licenseWindowReady = false;
 let pendingLicensePayload = null;
 let registeredTimingHotkey = "";
 let updater = null;
+let launcher = null;
 let updateTimer = null;
 
 app.disableHardwareAcceleration();
@@ -85,7 +87,7 @@ function sendSnapshot(snapshot) {
   }
   pendingSnapshot = null;
   try {
-    mainWindow.webContents.send("controller:snapshot", { ...snapshot, updates: updater?.snapshot() });
+    mainWindow.webContents.send("controller:snapshot", { ...snapshot, updates: updater?.snapshot(), game: launcher?.snapshot() });
   } catch (error) {
     appLog(`snapshot send failed: ${error.message}`);
   }
@@ -201,7 +203,7 @@ function wireIpc() {
     requireRuntimeLicense();
     return callback(event, ...args);
   });
-  handle("controller:getSnapshot", () => { appLog("renderer handshake OK"); return { ...core.snapshot(), updates: updater?.snapshot() }; });
+  handle("controller:getSnapshot", () => { appLog("renderer handshake OK"); return { ...core.snapshot(), updates: updater?.snapshot(), game: launcher?.snapshot() }; });
   handle("controller:checkUpdates", () => updater.check());
   handle("controller:installUpdate", () => updater.install());
   handle("controller:applyTiming", (_event, payload) => core.applyTiming(payload || {}));
@@ -231,6 +233,10 @@ function wireIpc() {
   handle("controller:rawPunch", () => core.rawPunch());
   handle("controller:stopModes", () => core.stopModes());
   handle("controller:clearLogs", () => core.clearLogs());
+  handle("game:launch", () => launcher.launch());
+  handle("game:submitCode", (_event, code) => launcher.submitTwoFactor(typeof code === "string" ? code : ""));
+  handle("game:saveAccount", (_event, username, password) => launcher.saveAccount(typeof username === "string" ? username : "", typeof password === "string" ? password : ""));
+  handle("game:forgetAccount", () => launcher.forgetAccount());
 
   core.on("snapshot", (snapshot) => {
     sendSnapshot(snapshot);
@@ -361,11 +367,22 @@ function startApp() {
     globalShortcut.unregisterAll();
     registeredTimingHotkey = "";
   } });
+  // Replaces ABRIR_HUB_Y_CONTROLLER.cmd: the Hub opens BoomBang itself.
+  launcher = new GameLauncher({
+    accountPath: path.join(app.getPath("userData"), "game-account.json"),
+    clientExe: path.join(app.getPath("appData"), "boombang-launcher", "clients", "2", "BoomBangHTML5.exe"),
+    hubPort: core.port,
+    log: (line) => core.log(line)
+  });
+  launcher.on("change", () => sendSnapshot(core.snapshot()));
   wireIpc();
   core.start();
   void startBundledRingBoard();
   createWindow();
   registerHotkeys();
+  setTimeout(() => {
+    if (runtimeAllowed && launcher.readAccount()) launcher.launch().catch((error) => core.log(`Juego: ${error.message}`));
+  }, 1500);
   setTimeout(() => { if (runtimeAllowed) void updater.check(); }, 5000);
   updateTimer = setInterval(() => { if (runtimeAllowed) void updater.check(); }, 6 * 60 * 60 * 1000);
 }
@@ -471,6 +488,7 @@ app.on("before-quit", () => {
   clearInterval(licenseTimer);
   clearInterval(updateTimer);
   globalShortcut.unregisterAll();
+  launcher?.stop();
   if (core) {
     core.stop();
   }

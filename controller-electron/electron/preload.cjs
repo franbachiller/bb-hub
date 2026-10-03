@@ -31,6 +31,10 @@ contextBridge.exposeInMainWorld("ringController", {
   rawPunch: () => ipcRenderer.invoke("controller:rawPunch"),
   stopModes: () => ipcRenderer.invoke("controller:stopModes"),
   clearLogs: () => ipcRenderer.invoke("controller:clearLogs"),
+  launchGame: () => ipcRenderer.invoke("game:launch"),
+  submitGameCode: (code) => ipcRenderer.invoke("game:submitCode", code),
+  saveGameAccount: (username, password) => ipcRenderer.invoke("game:saveAccount", username, password),
+  forgetGameAccount: () => ipcRenderer.invoke("game:forgetAccount"),
   onSnapshot: (callback) => {
     const handler = (_event, snapshot) => callback(snapshot);
     ipcRenderer.on("controller:snapshot", handler);

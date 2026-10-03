@@ -92,6 +92,9 @@ function buildSnapshot(base) {
 export function createDemoApi(base) {
   const mode = new URLSearchParams(window.location.search).get("demo");
   let snap = mode === "empty" ? { ...base, ringBoard: { ...base.ringBoard, url: RING_PREVIEW_URL } } : buildSnapshot(base);
+  snap.game = mode === "empty"
+    ? { state: "idle", message: "", username: "", hasAccount: false, clientFound: true }
+    : { state: "ready", message: "Juego conectado.", username: "Bachi", hasAccount: true, clientFound: true };
   const listeners = new Set();
   const emit = () => { snap = { ...snap }; listeners.forEach((fn) => fn(snap)); };
   const log = (text) => { snap.logs = [...(snap.logs || []), { ts: stamp(), text }].slice(-80); };
@@ -148,6 +151,10 @@ export function createDemoApi(base) {
     rawPunch: async () => {},
     stopModes: patch(() => { snap.timing = { ...snap.timing, enabled: false }; snap.dropHunter = { ...snap.dropHunter, enabled: false }; log("Detener todo"); }),
     clearLogs: patch(() => { snap.logs = []; }),
+    launchGame: patch(() => { snap.game = { ...snap.game, state: "ready", message: "Juego conectado." }; }),
+    submitGameCode: async () => {},
+    saveGameAccount: patch((username) => { snap.game = { ...snap.game, hasAccount: true, username }; }),
+    forgetGameAccount: patch(() => { snap.game = { ...snap.game, hasAccount: false, username: "", state: "idle", message: "" }; }),
     onSnapshot: (fn) => { listeners.add(fn); return () => listeners.delete(fn); }
   };
 }

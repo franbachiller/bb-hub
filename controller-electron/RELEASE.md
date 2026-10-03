@@ -1,5 +1,36 @@
 # BB Hub — distribución Windows
 
+## 0.1.3 — el Hub abre el juego
+
+0.1.2 traía solo el Hub: el juego se abría con `ABRIR_HUB_Y_CONTROLLER.cmd`
+(Node + Playwright + `HTML5/hub_runtime`), que no existe en el equipo del
+cliente, así que el Hub instalado quedaba esperando en el `:9999`.
+
+- `electron/game/game-launcher.cjs`: login en `backend-launcher.boombang.tv`
+  (con 2FA), ticket, `BoomBangHTML5.exe --remote-debugging-port=9230`,
+  conexión CDP con `playwright-core`, inyección de `ring_scene` +
+  `flash_runtime` y puente al `:9999` (`hub-bridge.cjs`). Sin
+  `--remote-allow-origins=*`: el puerto CDP no acepta páginas web.
+- La cuenta se guarda en `userData/game-account.json`, contraseña cifrada con
+  `safeStorage` (DPAPI del usuario de Windows).
+- Si el juego ya tenía otro runtime cargado (una sesión anterior), el Hub lo
+  recarga: `flash_runtime` nunca se instala dos veces en la misma página, y un
+  runtime viejo en memoria explicaba timing en T+0 fijo y coco guard sin
+  aplicar aunque el Hub fuera el correcto. La barra lateral muestra el build
+  del runtime conectado.
+- Diagnósticos de combate apagados en la versión distribuida.
+- `npm run sync-runtime` copia `HTML5/hub_runtime/{flash_runtime,ring_scene}.page.js`
+  a `electron/game/`; `protect` imprime el build del runtime que empaqueta y lo
+  ofusca sin string array (renombrado solamente, para no tocar el timing).
+
+Verificado en Linux: núcleo protegido (bytecode + ofuscación) contra el
+original con la misma sesión simulada, 80 mensajes al runtime idénticos;
+runtime ofuscado contra el original en Chromium, misma API y mismo arranque;
+lanzador de punta a punta contra Chromium real con iframe del juego en otro
+proceso, runtime viejo precargado y cierre del juego; `playwright-core` desde
+un `.asar` con Electron 44. Pendiente en Windows: login real, 2FA y
+`BoomBangHTML5.exe`.
+
 La entrega final del 3 de octubre de 2026 está en
 `../DISTRIBUCION/BB Hub 0.1.2 Windows x64`, junto con un ZIP para enviar.
 La carpeta contiene únicamente el instalador NSIS x64, `LEEME.txt` y

@@ -28,8 +28,14 @@ const PROTECT = [
   "controller-core.cjs",
   "updater.cjs",
   "hotkey.cjs",
-  "license/gate.cjs"
+  "license/gate.cjs",
+  "game/game-launcher.cjs",
+  "game/hub-bridge.cjs"
 ];
+
+// Runtime que se inyecta en la página del juego. Solo renombrado (sin string
+// array): corre el timing en tiempo real dentro del cliente.
+const PAGE_SCRIPTS = ["game/flash_runtime.page.js", "game/ring_scene.page.js"];
 
 // Los preloads sandboxed solo pueden importar electron y módulos permitidos.
 // Se ofuscan en un único archivo, sin el loader Node de bytenode.
@@ -54,6 +60,8 @@ const OBF_OPTS = {
   disableConsoleOutput: false,
   sourceMap: false
 };
+
+const PAGE_OBF_OPTS = { ...OBF_OPTS, target: "browser", stringArray: false };
 
 // BB_NO_OBF=1 compila solo bytecode (sin ofuscar) para aislar problemas.
 const NO_OBF = process.env.BB_NO_OBF === "1";
@@ -129,6 +137,14 @@ async function main() {
     }
   }
   protectTree(boardDist);
+  const runtimeBuild = fs.readFileSync(path.join(SRC, "game", "flash_runtime.page.js"), "utf8").match(/BRIDGE_BUILD = "([^"]+)"/);
+  log(`  runtime del juego: ${runtimeBuild ? runtimeBuild[1] : "build desconocido"}`);
+  for (const rel of PAGE_SCRIPTS) {
+    const file = path.join(OUT, rel);
+    const source = fs.readFileSync(file, "utf8");
+    fs.writeFileSync(file, NO_OBF ? source : JSObf.obfuscate(source, PAGE_OBF_OPTS).getObfuscatedCode(), "utf8");
+    log(`  ✓ ${rel} → ofuscado (página del juego)`);
+  }
   log("  ✓ ring-board servidor / solver / worker → ofuscados, sin source maps");
   log("listo. electron-builder empaqueta desde protected/electron/");
 }
