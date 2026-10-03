@@ -532,7 +532,7 @@ function AlliesRow({ snapshot, runAction }) {
   const dirty = draft.trim() !== saved;
   return <Setting title="Lista blanca" text={<>{snapshot.allies?.length ? `Nunca les pega a: ${snapshot.allies.join(", ")}.` : "El bot le pega a cualquiera."} Nombres separados por coma.</>} stack>
     <div className="controls">
-      <input className="input" value={draft} placeholder="Flee, amigo1" onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") runAction(() => api.setAllies(draft)); }} aria-label="Lista blanca" />
+      <input className="input" value={draft} placeholder="amigo1, amigo2" onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") runAction(() => api.setAllies(draft)); }} aria-label="Lista blanca" />
       <button className={dirty ? "btn btn-primary" : "btn"} onClick={() => runAction(() => api.setAllies(draft))}>Guardar</button>
     </div>
   </Setting>;

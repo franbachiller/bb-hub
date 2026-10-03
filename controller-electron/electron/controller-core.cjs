@@ -500,7 +500,7 @@ class ControllerCore extends EventEmitter {
     if (saved.timingOn === true) this.setTimingDesired(true);
     // Step walk (runtime): our walks go out one tile per tick. On unless turned off.
     this.stepWalk = saved.stepWalk !== false;
-    this.allies = normalizeAllies(saved.allies ?? ["Flee"]);
+    this.allies = normalizeAllies(saved.allies ?? []);
     // Auto mode (29/09): the bot plays on its own and rejoins the Ring after each loss.
     this.autoRun = saved.autoRun === true && this.boardLicensed();
     // Random emotes (29/09): a laugh, a spit... now and then, never with a rival close in the Ring.
