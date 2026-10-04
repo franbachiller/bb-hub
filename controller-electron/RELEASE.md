@@ -30,6 +30,14 @@ cliente, así que el Hub instalado quedaba esperando en el `:9999`.
   otro ajuste: un T+N manual tocado una vez volvía en cada inicio (`auto:
   false` en las capturas del 03 y 04/10, contra `auto: true` el 02/10), sin
   aprender, y en T+0 los clicks rebotaban.
+- Runtime v6_63 (`react_after_blind`): la reacción ya no se anula porque el
+  click del tick haya ido al mismo rival si ese click salió a ciegas (antes
+  del lote). En la sesión del 02/10, 8 de 15 muertes fueron un click a ciegas
+  al asesino sin reacción; el 04/10, la muerte capturada también (click a
+  ciegas 161 ms antes de que llegara, sin 144, golpe del rival en T+253; la
+  reacción aterriza ~T+170). `sync-runtime` no baja de versión.
+- Prioridad del cliente: renderers de BoomBangHTML5.exe en High, resto en
+  AboveNormal, reaplicado cada 15 s.
 - Diagnósticos de combate apagados en la versión distribuida.
 - Inicio muestra nuestro personaje (diseño traído de la rama de Gemini): el
   lanzador lee `#BoomBangFlowerPowerAvatar` del juego cada 4 s, fuera del
