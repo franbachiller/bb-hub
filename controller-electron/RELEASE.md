@@ -34,6 +34,11 @@ cliente, así que el Hub instalado quedaba esperando en el `:9999`.
   sha256 3fc2dabb…), elegido por el usuario. Se descartaron v6_63, v6_64 y la
   prueba con v6_44 del 04/10. `sync-runtime` no reemplaza el runtime
   empaquetado por otro build sin `--force`.
+- El runtime del juego se empaqueta sin ofuscar (idéntico a
+  `electron/game/flash_runtime.page.js`). El 04/10 el usuario jugó el mismo
+  runtime sin ofuscar con `ABRIR_HUB_VIEJO.cmd` y volvió a reaccionar como
+  siempre, cosa que con el Hub instalado (runtime ofuscado) no pasaba.
+  `BB_PAGE_OBF=1` lo vuelve a ofuscar. El proceso principal sigue en bytecode.
 - El lanzador abre el juego igual que `ABRIR_HUB_Y_CONTROLLER.cmd` (mismos
   flags, `--remote-allow-origins=*` incluido). Se sacó la prioridad High que
   se reaplicaba cada 15 s con PowerShell; el `.cmd` nunca la usó.
