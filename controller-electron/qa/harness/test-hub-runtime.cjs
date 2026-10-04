@@ -199,6 +199,14 @@ const api = context.__BBFlashRuntime;
     fixture.Socket.instance.handleReceivedBytes(p.toByteArray());
   }`);
   context.time = 2000;
+  // The room packet above retires its avatar objects. The new room supplies
+  // fresh ones; automatic combat correctly ignores objects from the old room.
+  run(`for (const [id, av] of fixture.Renderer.instance.avatars) {
+    fixture.Renderer.instance.avatars.set(id, { ...av, position: { ...av.position }, avatarInfo: { ...av.avatarInfo } });
+  }`);
+  // The autonomous STEP window needs an actual contact at our destination;
+  // a ficha alone must not force a window at an out-of-contact player.
+  walk(1, 7, 11, 12);
   api.onHubMessage({
     type: "timing_config", enabled: true, source: "STEP", stepAnchor: "SELF",
     start: 100, end: 400, rate: 50, mult: 1, clicks: 0, gap: 1, profile: "LINEAR",
@@ -219,6 +227,7 @@ const api = context.__BBFlashRuntime;
   assert.equal(api.status().timing.clicks, 100);
   assert.equal(api.status().timing.gap, 1000);
   api.onHubMessage({ type: "timing_config", enabled: false, source: "STEP" });
+  walk(1, 7, 11, 11); // restore the rival pose for the following fixtures
   console.log("PASS STEP follows Hub window without landing field; pet walks ignored; Hub clamps match");
 
   const hubCore = require("../../electron/controller-core.cjs");

@@ -1,0 +1,42 @@
+{
+  "version": "0.1.7",
+  "channel": "local-test",
+  "platform": "Windows x64",
+  "installer": "BB Hub Setup 0.1.7.exe",
+  "installerSizeBytes": 126348814,
+  "installerSha256": "265c3f41c4092f99ee6f73fae54a2f54cc4f003de69a656e4ba4a190505ede33",
+  "runtimeBuild": "04102026_html5_hub_v6_69_automatic_target",
+  "runtimeSha256": "e601e977fa2ed13abf0069d8432db06e5a5bb6f708b066f054e5c7a1ac0ba101",
+  "asarSha256": "8458d01fab2ce96282f16a329d4cd1d4134408bee7219bfc02388e374f0be86d",
+  "validation": {
+    "automatedSuitesPassed": [
+      "selection-qa",
+      "protected-selection",
+      "packaged-smoke",
+      "timing-offline-harness",
+      "timing-renderer-regression",
+      "timing-learning-regression",
+      "timing-contact-regression",
+      "client-discovery",
+      "port-conflict",
+      "runtime-security",
+      "verify-distribution",
+      "verify-installer"
+    ],
+    "selectionScenarios": 9,
+    "combatHarnessCases": 48,
+    "protectedPackagePassed": true,
+    "installerMatchesTestedPackage": true,
+    "actualGameplayValidated": false,
+    "customerValidation": false
+  },
+  "findings": {
+    "principalTickWasAlreadySelectionIndependent": true,
+    "legacyTimingAndBoardSelectionDependenciesRemoved": true,
+    "originalReactionRegressionRootCauseConfirmed": false
+  },
+  "licenseSystemChanged": false,
+  "personalConfigurationExcluded": true,
+  "publishedToGitHub": false,
+  "publishedToUpdater": false
+}

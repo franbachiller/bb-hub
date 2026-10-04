@@ -5,6 +5,11 @@ Código privado del Hub, Board y componentes auxiliares. Versión entregable:
 Licencias Basic/Pro mediante Cryptlex; el permiso
 `ring_board=true` habilita el bot.
 
+La rama local `codex/timing-auto-target` prepara **0.1.7 de prueba**:
+fichar no decide los golpes automáticos y la UI muestra el último disparo
+real. Sigue pendiente comprobar su reacción en una partida real; 0.1.6
+conserva la validación de clientes. Ver `controller-electron/RELEASE.md`.
+
 Desde 0.1.3 el Hub abre el juego por su cuenta: inicia sesión con la cuenta de
 BoomBang guardada (cifrada con DPAPI), abre `BoomBangHTML5.exe` con CDP, inyecta
 el runtime de `controller-electron/electron/game/` y lo conecta al controller.
@@ -40,6 +45,7 @@ node qa/runtime-security.cjs
 node qa/timing-renderer-regression.cjs
 node qa/timing-learning-regression.cjs
 node qa/timing-contact-regression.cjs
+node qa/timing-selection-regression.cjs
 node qa/timing-offline-harness.cjs
 ```
 

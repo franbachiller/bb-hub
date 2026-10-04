@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "04102026_html5_hub_v6_68_renderer_positions";
+  const BRIDGE_BUILD = "04102026_html5_hub_v6_69_automatic_target";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -128,7 +128,7 @@
         // One click per tick at the learned phase (the Hub's only mode).
         single: false,
         // Dense burst on the first shot: burst requests burstGapMs apart, all
-        // after T, all to the fichado.
+        // after T, all to the engine's chosen threat.
         burst: 5,
         burstGapMs: 4
       }
@@ -628,6 +628,11 @@
       return fichado;
     }
     return state.selectedId;
+  }
+
+  // Fichar is only UI/manual input. Automatic combat never consults it.
+  function automaticTimingTargetId(landing = now() + rttEstimateMs() + state.tickEngine.corr) {
+    return threatPick(landing, TICK_BLIND_MIN_P)?.id ?? -1;
   }
 
   function lateralAdjacent(ax, ay, bx, by) {
@@ -1491,6 +1496,9 @@
   }
 
   function notePunch(targetId, reason) {
+    if (reason && !["native", "CTRL", "manual"].includes(reason)) {
+      state.lastAutomaticPunch = { targetId: targetId | 0, reason, at: Math.round(now()) };
+    }
     const self = ensureActorFromRenderer(inferSelfId());
     const target = ensureActorFromRenderer(targetId);
     state.lastPunch.seq++;
@@ -1508,7 +1516,7 @@
   // server still decides what it accepts.
   function firePunch(targetId, reason, options) {
     let id = asId(targetId);
-    if (id == null || id < 0) id = selectedId();
+    if ((id == null || id < 0) && (reason === "CTRL" || reason === "manual")) id = selectedId();
     if (id == null || id < 0 || id === inferSelfId()) return false;
     if (isAlly(id)) { state.allies.blocked++; return false; }
     const upper = providerInstance(state.providers.upper);
@@ -1843,6 +1851,7 @@
   }
 
   function softResetCombat(reason) {
+    state.lastAutomaticPunch = null;
     state.stepWalk.goal = null;
     state.burstPlans = [];
     state.gridPlan = null;
@@ -1901,7 +1910,7 @@
     if (!actor || contFlag !== 0) return;
     const selfId = inferSelfId();
     if (selfId < 0 || movedId === selfId) return;
-    const targetId = selectedId();
+    const targetId = automaticTimingTargetId(actor.startAt + actor.stepMs);
     if (targetId < 0 || targetId !== movedId) return;
     const self = ensureActorFromRenderer(selfId);
     if (!self) return;
@@ -1940,7 +1949,7 @@
       state.landingC.wasContact = false;
       return;
     }
-    const target = selectedId();
+    const target = automaticTimingTargetId();
     if (target < 0 || target === inferSelfId()) {
       state.landingC.wasContact = false;
       return;
@@ -2408,7 +2417,7 @@
       state.contactEdge.wasContact = false;
       return;
     }
-    const target = selectedId();
+    const target = automaticTimingTargetId();
     if (target < 0 || target === inferSelfId()) {
       state.contactEdge.wasContact = false;
       return;
@@ -2434,7 +2443,7 @@
     const timingMove = timingModeActive() && timingSourceMode() === "MOVE_DELAY";
     if (!pulseMove && !timingMove && !state.moveDelay.enabled) return;
     if ((moveDur | 0) < (state.moveDelay.minMoveMs | 0)) return;
-    const target = selectedId();
+    const target = automaticTimingTargetId(moveStartAt + moveDur);
     if (target < 0) return;
     const key = `MD:${Math.round(moveStartAt)}:${target}`;
     if (key === state.moveDelay.lastFireKey) return;
@@ -2613,7 +2622,7 @@
   function scheduleStatePunch(movedId, reason) {
     if (!timingModeActive() || timingSourceMode() !== "STATE") return;
     if (!state.stateCfg.enabled && timingSourceMode() !== "STATE") return;
-    const sel = selectedId();
+    const sel = automaticTimingTargetId();
     if (sel < 0) return;
     const selfId = inferSelfId();
     if (movedId !== sel && movedId !== selfId) {
@@ -2659,7 +2668,7 @@
     let bestDist = 999;
     for (const [rawId] of renderer.avatars) {
       const id = asId(rawId);
-      if (id == null || id === inferSelfId()) continue;
+      if (id == null || id === inferSelfId() || state.tickEngine.out.has(id) || isMuted(id) || isAlly(id) || isStale(id)) continue;
       const actor = ensureActorFromRenderer(id);
       if (!actor) continue;
       if (state.pulse.contactOnly && !lateralAdjacent(self.toX, self.toY, actor.toX, actor.toY)) {
@@ -2675,6 +2684,11 @@
   }
 
   function pulseTargetId() {
+    if (state.pulse.autoTarget) {
+      const auto = pulseNearestLateral();
+      state.pulse.autoTargetId = auto;
+      return auto;
+    }
     if (state.pulse.requireSelected || !state.pulse.autoTarget) {
       const sel = selectedId();
       if (sel >= 0) {
@@ -4745,6 +4759,8 @@
   function tickHubSummary() {
     const E = state.tickEngine;
     return {
+      lastTargetId: state.lastAutomaticPunch?.targetId ?? -1,
+      lastTargetReason: state.lastAutomaticPunch?.reason || "",
       enabled: tickEnabled(),
       synced: E.origin != null && E.batches.length >= 1,
       coherence: Number(E.coherence.toFixed(2)),
@@ -4798,7 +4814,9 @@
     if (!actor) return;
     const dur = actor.stepMs > 0 ? actor.stepMs : 600;
     const selfId = inferSelfId();
-    const sel = selectedId();
+    // TICK already picks every rival independently; do not even read the ficha
+    // getter on its movement path. Legacy timing modes use the same threat model.
+    const sel = tickEnabled() ? -1 : automaticTimingTargetId();
 
     if (direction === "out" && movedId === selfId) {
       moveDelaySchedule(actor.startAt, dur);
@@ -5362,7 +5380,7 @@
     if ("moveDelay" in msg) state.moveDelay.enabled = Boolean(msg.moveDelay);
     if ("moveDelayMs" in msg) state.moveDelay.delayMs = clamp(msg.moveDelayMs, 0, 500);
     if (state.pulse.autoTarget) {
-      state.pulse.requireSelected = true;
+      state.pulse.requireSelected = false;
       state.pulse.multiTarget = false;
     }
     if (state.pulse.enabled) {

@@ -54,6 +54,21 @@ app.whenReady().then(async () => {
   })`);
   assert.equal(profile.name, 'Cliente de prueba'); assert.equal(profile.avatar, avatar);
   assert.equal(profile.alt, 'Personaje de Cliente de prueba');
+  const targetSnapshot = { ...core.snapshot(), connected: true, selfId: 7,
+    selectedTarget: 7, tick: { lastTargetId: 9 },
+    players: [{ id: 7, name: 'Cliente de prueba', self: true, selected: true, x: 10, y: 11 },
+      { id: 9, name: 'Rival automático', x: 11, y: 12 }, { id: 17, name: 'Fichado lejano', x: 17, y: 17 }],
+    game: { ...emptyGame, state: 'ready', hasAccount: true, username: 'Cliente de prueba', avatarUrl: avatar } };
+  for (const selectedTarget of [7, 17, -1]) {
+    win.webContents.send('controller:snapshot', { ...targetSnapshot, selectedTarget });
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.target-name').textContent`), 'Rival automático');
+    assert.equal(await win.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.readout dt')).find(x => x.textContent === 'Último disparo de Timing')?.nextElementSibling?.textContent`), 'Rival automático');
+  }
+  win.webContents.send('controller:snapshot', { ...targetSnapshot, tick: { lastTargetId: 7 } });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(await win.webContents.executeJavaScript(`document.querySelector('.target-name').textContent`), 'Sin disparos');
+  console.log('PASS: packaged UI shows the actual automatic shot independently of ficha and rejects self as an automatic target.');
   const { GameLauncher } = require(path.join(archive, 'electron/game/game-launcher.cjs'));
   const cleanRoot = fs.mkdtempSync(path.join(app.getPath('temp'), 'bb-fresh-client-'));
   const freshLauncher = new GameLauncher({ accountPath: path.join(cleanRoot, 'game-account.json'),

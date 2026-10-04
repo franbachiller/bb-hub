@@ -14,6 +14,7 @@ RELEASES/
 !docs/releases/
 !docs/releases/*.json
 DISTRIBUIBLE_*/
+PRUEBAS_*/
 REVERSION_02_OCTUBRE/
 RECUPERACION_TIMING/
 tools/ffdec/
