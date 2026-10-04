@@ -29,8 +29,8 @@ for (const name of FILES) {
     process.exit(1);
   }
 }
-// 04/10: the Hub ships v6_44 (29/09), the timing the user validated; everything
-// after it (01/10-04/10) is out. A different build only replaces it with --force.
+// 04/10: the Hub ships the original v6_62 of 02/10 (sha256 3fc2dabb...), the
+// timing the user chose. A different build only replaces it with --force.
 const build = (text) => (String(text).match(/BRIDGE_BUILD = "([^"]+)"/) || [])[1] || "";
 const incoming = build(fs.readFileSync(path.join(FROM, "flash_runtime.page.js"), "utf8"));
 const current = build(fs.readFileSync(path.join(TO, "flash_runtime.page.js"), "utf8"));
