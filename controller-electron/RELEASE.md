@@ -30,16 +30,14 @@ cliente, así que el Hub instalado quedaba esperando en el `:9999`.
   otro ajuste: un T+N manual tocado una vez volvía en cada inicio (`auto:
   false` en las capturas del 03 y 04/10, contra `auto: true` el 02/10), sin
   aprender, y en T+0 los clicks rebotaban.
-- Runtime v6_63 (`react_after_blind`): la reacción ya no se anula porque el
-  click del tick haya ido al mismo rival si ese click salió a ciegas (antes
-  del lote). En la sesión del 02/10, 8 de 15 muertes fueron un click a ciegas
-  al asesino sin reacción; el 04/10, la muerte capturada también (click a
-  ciegas 161 ms antes de que llegara, sin 144, golpe del rival en T+253; la
-  reacción aterriza ~T+170). `sync-runtime` no baja de versión.
-- Runtime v6_64 (`floor10`): Auto vuelve a no bajar de T+10, como en v6_44.
-  El piso del 01/10 seguía al jitter medido y en una sesión limpia (sigma 2-3)
-  bajaba hasta T+4 (04/10: 111 de 154 primeros clicks en T+4). Las capturas
-  del 03/10 se quedaban en T+12 solo porque el jitter medido ahí era alto.
+- Runtime v6_44 (`29092026_html5_hub_v6_44_silent_gap`, 29/09), idéntico al
+  baseline `pre_v645` (sha256 0636d4ee…). Se sacó todo lo posterior (v6_45 a
+  v6_64, 01/10-04/10): el usuario confirma que esas versiones nunca pegaron como
+  el 29/09. Entre otras cosas, v6_44 decide el golpe al disparar (sin
+  precálculo al llegar el lote), Auto no baja de T+10 y no le pega a rivales
+  parados a 2 casillas en diagonal. El coco propio (`coco_self`) no existe en
+  v6_44: el Hub lo manda y el runtime lo ignora. `sync-runtime` ya no reemplaza
+  el runtime empaquetado por otro build sin `--force`.
 - Prioridad del cliente: renderers de BoomBangHTML5.exe en High, resto en
   AboveNormal, reaplicado cada 15 s.
 - Diagnósticos de combate apagados en la versión distribuida.

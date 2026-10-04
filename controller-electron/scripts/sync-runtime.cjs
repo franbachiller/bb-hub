@@ -29,19 +29,15 @@ for (const name of FILES) {
     process.exit(1);
   }
 }
-// Never go back: the packaged runtime can be newer than HTML5/hub_runtime
-// (04/10: v6_63 lives in electron/game first).
-const version = (text) => {
-  const m = String(text).match(/BRIDGE_BUILD = "[^"]*_v(\d+)_(\d+)/);
-  return m ? Number(m[1]) * 1000 + Number(m[2]) : 0;
-};
-const incoming = version(fs.readFileSync(path.join(FROM, "flash_runtime.page.js"), "utf8"));
-const current = version(fs.readFileSync(path.join(TO, "flash_runtime.page.js"), "utf8"));
-if (incoming < current) {
-  console.error("HTML5/hub_runtime tiene un runtime más viejo que el del Hub. No se copió.");
-  console.error("Copiá electron/game/flash_runtime.page.js a HTML5/hub_runtime para igualarlos.");
+// 04/10: the Hub ships v6_44 (29/09), the timing the user validated; everything
+// after it (01/10-04/10) is out. A different build only replaces it with --force.
+const build = (text) => (String(text).match(/BRIDGE_BUILD = "([^"]+)"/) || [])[1] || "";
+const incoming = build(fs.readFileSync(path.join(FROM, "flash_runtime.page.js"), "utf8"));
+const current = build(fs.readFileSync(path.join(TO, "flash_runtime.page.js"), "utf8"));
+if (incoming !== current && !process.argv.includes("--force")) {
+  console.error(`HTML5/hub_runtime tiene ${incoming || "un build desconocido"}; el Hub empaqueta ${current}. No se copió.`);
+  console.error("Para reemplazarlo igual: npm run sync-runtime -- --force");
   process.exit(1);
 }
 for (const name of FILES) fs.copyFileSync(path.join(FROM, name), path.join(TO, name));
-const build = fs.readFileSync(path.join(TO, "flash_runtime.page.js"), "utf8").match(/BRIDGE_BUILD = "([^"]+)"/);
-console.log(`Runtime copiado: ${build ? build[1] : "build desconocido"}`);
+console.log(`Runtime copiado: ${build(fs.readFileSync(path.join(TO, "flash_runtime.page.js"), "utf8")) || "build desconocido"}`);
