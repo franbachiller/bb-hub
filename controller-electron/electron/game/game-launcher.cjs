@@ -343,6 +343,11 @@ class GameLauncher extends EventEmitter {
     const relay = (obj) => {
       if (obj?.type === "diagnostic_event") {
         this.recorder?.record(obj);
+        // Standing players never send a step: the combat log only knows where
+        // they are from a snapshot. One at each room load and round start.
+        if (obj.event === "room_boundary" && ((obj.opcode === 160 && obj.packetType === 126) || (obj.opcode === 128 && obj.packetType === 120))) {
+          setTimeout(() => void this.recordPositions(), obj.opcode === 128 ? 2500 : 300);
+        }
         return;
       }
       this.bridge?.send(obj);
@@ -432,6 +437,13 @@ class GameLauncher extends EventEmitter {
     };
     this.browser.once("disconnected", closed);
     child?.once("exit", closed);
+  }
+
+  async recordPositions() {
+    if (!this.recorder || !this.gameFrame) return;
+    const snap = await inPage(this.gameFrame, `const s = window.__BBFlashRuntime?.duel?.snapshot?.();
+      return s ? { ts: performance.now(), selfId: s.selfId, players: s.players.map((p) => ({ id: p.id, name: p.username, x: p.x, y: p.y })) } : null;`).catch(() => null);
+    if (snap) this.recorder?.record({ type: "diagnostic_event", event: "positions", ...snap });
   }
 
   async readAvatar() {

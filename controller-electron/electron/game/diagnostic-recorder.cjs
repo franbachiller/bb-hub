@@ -9,7 +9,7 @@ const EVENTS = new Set([
   "packet", "config", "fire_attempt", "room_boundary",
   "tick_fire", "tick_skip", "tick_reply", "tick_race", "target_muted", "exit_fire", "exit_result", "guard_fire", "unlock_fire", "runlock_fire", "tick_dual", "lab_cooldown",
   // who is behind each room id (per ring), and every ring-board move decision with its reason
-  "roster", "rb_move", "burst_ab", "coco_guard", "platform", "reach_probe", "auto_ring", "emote", "requeue"
+  "roster", "positions", "rb_move", "burst_ab", "coco_guard", "platform", "reach_probe", "auto_ring", "emote", "requeue"
 ]);
 const PACKETS = new Set([182, 211, 144, 215, 184, 135, 149, 160]); // 149: coco request, 160: round (27/09)
 
