@@ -1,6 +1,6 @@
 const path = require("path");
 const fs = require("fs");
-const { app, BrowserWindow, globalShortcut, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, globalShortcut, ipcMain, shell, dialog } = require("electron");
 const { ControllerCore } = require("./controller-core.cjs");
 const gate = require("./license/gate.cjs");
 const { normalizeHotkey } = require("./hotkey.cjs");
@@ -237,6 +237,18 @@ function wireIpc() {
   handle("game:submitCode", (_event, code) => launcher.submitTwoFactor(typeof code === "string" ? code : ""));
   handle("game:saveAccount", (_event, username, password) => launcher.saveAccount(typeof username === "string" ? username : "", typeof password === "string" ? password : ""));
   handle("game:forgetAccount", () => launcher.forgetAccount());
+  handle("game:findClient", () => launcher.findClient());
+  handle("game:selectClient", async () => {
+    if (launcher.busy || launcher.isRunning()) throw new Error("Cierra el juego antes de cambiar la instalación.");
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: "Seleccionar BoomBang HTML5",
+      defaultPath: launcher.clientExe || undefined,
+      properties: ["openFile"],
+      filters: [{ name: "BoomBang HTML5 (BoomBangHTML5.exe)", extensions: ["exe"] }]
+    });
+    if (result.canceled || !result.filePaths[0]) return launcher.snapshot();
+    return launcher.selectClient(result.filePaths[0]);
+  });
   handle("game:setDiagnostics", (_event, enabled) => launcher.setDiagnostics(enabled === true));
   handle("game:openCaptures", () => {
     const dir = path.join(app.getPath("userData"), "combate");
@@ -365,6 +377,7 @@ function startApp() {
   closeLicenseWindow();
   appLog("startApp (licencia OK)");
   core = new ControllerCore({
+    autoPort: true,
     settingsPath: path.join(app.getPath("userData"), "settings.json")
   });
   updater = createUpdater({ app, onChange: () => sendSnapshot(core.snapshot()), beforeInstall: () => {
@@ -379,7 +392,14 @@ function startApp() {
     optionsPath: path.join(app.getPath("userData"), "game-options.json"),
     captureRoot: path.join(app.getPath("userData"), "combate"),
     clientExe: path.join(app.getPath("appData"), "boombang-launcher", "clients", "2", "BoomBangHTML5.exe"),
+    clientRoots: [
+      path.join(app.getPath("appData"), "boombang-launcher"),
+      path.join(process.env.LOCALAPPDATA || path.resolve(app.getPath("appData"), "..", "Local"), "boombang-launcher")
+    ],
     hubPort: core.port,
+    resolveHubPort: () => core.waitForTcpReady(),
+    isRuntimeConnected: (bridge, build) => Boolean(core.swfSocket &&
+      core.swfAddr?.port === bridge.socket?.localPort && core.bridgeBuild === build),
     log: (line) => core.log(line)
   });
   launcher.on("change", () => sendSnapshot(core.snapshot()));

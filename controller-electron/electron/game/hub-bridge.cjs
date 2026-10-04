@@ -87,7 +87,9 @@ class HubBridge {
       }
     });
 
-    socket.on("error", () => {
+    socket.on("error", (error) => {
+      if (this.lastError !== error.code) this.log(`puente: no se pudo conectar al puerto ${this.port}: ${error.code || error.message}`);
+      this.lastError = error.code;
       try { socket.destroy(); } catch {}
     });
   }

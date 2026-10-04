@@ -1,5 +1,50 @@
 # BB Hub — distribución Windows
 
+## 0.1.6 — conexión cuando el puerto está ocupado
+
+El registro del cliente confirmó `EADDRINUSE` en `127.0.0.1:9999`: el juego
+cargaba el runtime, pero el controller de esa ventana no podía escuchar.
+El Hub integrado conserva 9999 como primera opción y, si está ocupado, pide
+un puerto libre a Windows. El lanzador espera a que ese servidor esté listo
+y usa su puerto real. Los lanzadores externos conservan el puerto fijo.
+
+«Juego conectado» ahora exige que el controller reciba mensajes desde el
+socket de ese lanzador y reconozca su build. Un runtime que quedó abierto
+puede identificarse con su mensaje periódico `state`, sin repetir `hello`.
+Los errores del puente también muestran el puerto y código en Registro.
+
+Pruebas: conflicto real de puerto, ida y vuelta hello/state/config por TCP,
+ausencia de tráfico hacia el proceso ajeno, rechazo de una conexión sin el
+runtime esperado, parada y reinicio, núcleo/lanzador protegidos del ASAR,
+renderer/preload empaquetados y regresiones de timing. La entrega es
+`../DISTRIBUIBLE_0.1.6/BB Hub Setup 0.1.6.exe`.
+
+Conserva el runtime v6_68 byte por byte, la detección de instalaciones de
+0.1.5 y la UI de keko/nombre. No cambia el sistema de licencias ni incluye
+cuentas o ajustes personales. El 04/10/2026 el usuario confirmó que la
+actualización funciona correctamente en dos PCs de clientes distintos.
+
+## 0.1.5 — ubicación del cliente HTML5
+
+Cuando el cliente oficial estaba instalado fuera de la ruta fija de Roaming,
+el Hub mostraba «No se encontró BoomBang HTML5». Se añadió detección en
+Roaming/Local y lectura de la ubicación de HTML5 registrada por el launcher
+en `installed.json`. Inicio permite volver a buscar o seleccionar
+`BoomBangHTML5.exe` mediante el selector de archivos de Windows. Esa selección
+se guarda en las opciones del juego y se conserva al reiniciar.
+
+Se validan el nombre y la existencia del archivo; una selección cancelada
+conserva la configuración. Los IPC nuevos siguen sujetos a los controles de
+ventana y licencia. Las pruebas cubren carpetas con espacios y caracteres no
+ASCII, rutas personalizadas, una instalación eliminada, metadatos inválidos,
+persistencia y la interacción con el renderer/preload empaquetados.
+
+La entrega es `../DISTRIBUIBLE_0.1.5/BB Hub Setup 0.1.5.exe`, con su SHA256 e
+instrucciones. El ASAR extraído del instalador coincide con el que pasó las
+pruebas. Mantiene el runtime v6_68 de 0.1.4 con el mismo hash, la UI de keko y
+nombre y la configuración de Cryptlex. No incluye una cuenta del juego ni
+ajustes personales. No se ha verificado todavía en la PC remota del cliente.
+
 ## 0.1.3 — el Hub abre el juego
 
 0.1.2 traía solo el Hub: el juego se abría con `ABRIR_HUB_Y_CONTROLLER.cmd`

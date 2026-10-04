@@ -54,10 +54,13 @@ assert.equal(shortcuts.has('Control+F4'),false);
 api.setTimingHotkey('');
 assert.equal(shortcuts.size,0);
 assert.throws(() => handles.get('controller:getSnapshot')({sender:contents,senderFrame:{}}),/no autorizada/);
+assert.throws(() => handles.get('game:selectClient')({sender:contents,senderFrame:{}}),/no autorizada/);
 assert.throws(() => handles.get('license:activate')({sender:{},senderFrame:{}},'test'),/no autorizada/);
 state='SUSPENDED';
 assert.equal(api.currentLicense().state,'SUSPENDED'); // Production ignores BB_SKIP_LICENSE.
 assert.throws(() => handles.get('controller:getSnapshot')(trusted),/licencia válida/);
+assert.throws(() => handles.get('game:findClient')(trusted),/licencia válida/);
+assert.throws(() => handles.get('game:selectClient')(trusted),/licencia válida/);
 assert.equal(suspended,1);
 assert.equal(api.locked(),true);
 assert.throws(() => handles.get('controller:getSnapshot')(trusted),/licencia válida/);

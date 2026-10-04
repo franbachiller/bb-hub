@@ -35,6 +35,8 @@ contextBridge.exposeInMainWorld("ringController", {
   submitGameCode: (code) => ipcRenderer.invoke("game:submitCode", code),
   saveGameAccount: (username, password) => ipcRenderer.invoke("game:saveAccount", username, password),
   forgetGameAccount: () => ipcRenderer.invoke("game:forgetAccount"),
+  findGameClient: () => ipcRenderer.invoke("game:findClient"),
+  selectGameClient: () => ipcRenderer.invoke("game:selectClient"),
   setCombatLog: (enabled) => ipcRenderer.invoke("game:setDiagnostics", enabled),
   openCombatLogs: () => ipcRenderer.invoke("game:openCaptures"),
   onSnapshot: (callback) => {

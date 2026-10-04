@@ -14,6 +14,7 @@ const { EventEmitter } = require("node:events");
 const { safeStorage } = require("electron");
 const { HubBridge } = require("./hub-bridge.cjs");
 const { createDiagnosticRecorder } = require("./diagnostic-recorder.cjs");
+const { isHtml5Executable, locateHtml5Client } = require("./client-locator.cjs");
 
 const BACKEND = "https://backend-launcher.boombang.tv";
 const CDP_PORT = 9230;
@@ -67,7 +68,7 @@ async function requestJson(url, options) {
 }
 
 class GameLauncher extends EventEmitter {
-  constructor({ accountPath, optionsPath, captureRoot, clientExe, hubPort, log }) {
+  constructor({ accountPath, optionsPath, captureRoot, clientExe, clientRoots = [], hubPort, resolveHubPort, isRuntimeConnected, log }) {
     super();
     this.accountPath = accountPath;
     this.optionsPath = optionsPath;
@@ -76,8 +77,12 @@ class GameLauncher extends EventEmitter {
     // unless turned on from Inicio. Combat only: never auth, tickets or chat.
     this.diagnostics = this.readOptions().diagnostics === true;
     this.recorder = null;
-    this.clientExe = clientExe;
+    this.defaultClientExe = clientExe;
+    this.clientRoots = clientRoots;
+    this.clientExe = locateHtml5Client({ preferred: this.readOptions().clientExe, fallback: clientExe, roots: clientRoots });
     this.hubPort = hubPort;
+    this.resolveHubPort = resolveHubPort;
+    this.isRuntimeConnected = isRuntimeConnected;
     this.log = typeof log === "function" ? log : () => {};
     this.state = "idle";
     this.message = "";
@@ -101,7 +106,7 @@ class GameLauncher extends EventEmitter {
       avatarUrl: this.avatarUrl,
       diagnostics: this.diagnostics,
       captureFile: this.recorder?.file || "",
-      clientFound: fs.existsSync(this.clientExe)
+      clientFound: isHtml5Executable(this.clientExe)
     };
   }
 
@@ -114,6 +119,26 @@ class GameLauncher extends EventEmitter {
 
   readOptions() {
     try { return JSON.parse(fs.readFileSync(this.optionsPath, "utf8")) || {}; } catch { return {}; }
+  }
+
+  findClient() {
+    if (this.busy || this.isRunning()) throw new Error("Cierra el juego antes de cambiar la instalación.");
+    this.clientExe = locateHtml5Client({ preferred: this.readOptions().clientExe,
+      fallback: this.defaultClientExe, roots: this.clientRoots });
+    if (this.clientExe && this.state === "error") this.setState("idle");
+    this.emit("change");
+    return this.snapshot();
+  }
+
+  selectClient(file) {
+    if (this.busy || this.isRunning()) throw new Error("Cierra el juego antes de cambiar la instalación.");
+    if (!isHtml5Executable(file)) throw new Error("Selecciona el archivo BoomBangHTML5.exe del cliente HTML5 instalado.");
+    fs.mkdirSync(path.dirname(this.optionsPath), { recursive: true });
+    fs.writeFileSync(this.optionsPath, JSON.stringify({ ...this.readOptions(), clientExe: file }), "utf8");
+    this.clientExe = file;
+    if (this.state === "error") this.setState("idle");
+    this.emit("change");
+    return this.snapshot();
   }
 
   async setDiagnostics(enabled) {
@@ -187,14 +212,28 @@ class GameLauncher extends EventEmitter {
     return ["login", "twofa", "launching", "injecting", "ready"].includes(this.state);
   }
 
+
+  clientRunning() {
+    return new Promise((resolve) => {
+      const { execFile } = require("node:child_process");
+      execFile("tasklist", ["/FI", "IMAGENAME eq BoomBangHTML5.exe", "/NH"], { windowsHide: true }, (err, stdout) => {
+        resolve(!err && /BoomBangHTML5.exe/i.test(String(stdout || "")));
+      });
+    });
+  }
+
   async launch() {
     if (this.busy || this.state === "ready") return this.snapshot();
     const account = this.readAccount();
     if (!account) throw new Error("Primero guarda tu cuenta de BoomBang.");
     // An already open game with CDP (a previous Hub session): attach to it.
     if (await this.cdpAvailable()) return this.guard(() => this.attach(account.username, null));
-    if (!fs.existsSync(this.clientExe)) {
-      throw new Error("No se encontró BoomBang HTML5. Instala el launcher oficial de BoomBang y abre el juego una vez desde ahí.");
+    if (!(await this.cdpAvailable()) && (await this.clientRunning())) {
+      throw new Error("El juego ya está abierto sin el modo de conexión. Ciérralo por completo (también de la bandeja) y vuelve a pulsar Abrir juego.");
+    }
+    this.findClient();
+    if (!isHtml5Executable(this.clientExe)) {
+      throw new Error("No se encontró BoomBang HTML5. Ábrelo una vez desde el launcher oficial y pulsa Buscar de nuevo, o usa Elegir BoomBang HTML5.");
     }
     return this.guard(async () => {
       this.setState("login", `Iniciando sesión como ${account.username}…`);
@@ -324,6 +363,7 @@ class GameLauncher extends EventEmitter {
   }
 
   async attach(username, child) {
+    if (this.resolveHubPort) this.hubPort = await this.resolveHubPort();
     this.setState("launching", "Esperando a BoomBang…");
     await this.waitForCdp(child);
     const { chromium } = require("playwright-core");
@@ -421,6 +461,7 @@ class GameLauncher extends EventEmitter {
     if (!boot?.ready) throw new Error(`No se pudo conectar el Hub con el juego (${lastError || "tiempo agotado"}).`);
     await inPage(frame, `window.__BBFlashRuntime?.setHubConnected?.(${arg(Boolean(this.bridge.connected))});`).catch(() => {});
     this.log(`Juego: runtime ${boot.bridgeBuild || "?"} listo.`);
+    await this.waitForHubConnection(boot.bridgeBuild);
     this.setState("ready", "Juego conectado.");
     if (this.diagnostics) await this.applyDiagnostics();
     void this.readAvatar();
@@ -441,6 +482,15 @@ class GameLauncher extends EventEmitter {
     if (url === this.avatarUrl) return;
     this.avatarUrl = url;
     this.emit("change");
+  }
+
+  async waitForHubConnection(build, timeoutMs = 10000) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.bridge?.connected && (!this.isRuntimeConnected || this.isRuntimeConnected(this.bridge, build))) return;
+      await sleep(100);
+    }
+    throw new Error(`El juego cargó, pero no pudo comunicarse con el controller del Hub (puerto ${this.hubPort}). Revisa Registro.`);
   }
 
   async deliver(msg) {
