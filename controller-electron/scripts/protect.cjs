@@ -34,8 +34,8 @@ const PROTECT = [
   "game/diagnostic-recorder.cjs"
 ];
 
-// Runtime que se inyecta en la página del juego. Solo renombrado (sin string
-// array): corre el timing en tiempo real dentro del cliente.
+// Runtime que se inyecta en la página del juego. Va sin ofuscar (ver abajo);
+// con BB_PAGE_OBF=1 solo renombrado (sin string array).
 const PAGE_SCRIPTS = ["game/flash_runtime.page.js", "game/ring_scene.page.js"];
 
 // Los preloads sandboxed solo pueden importar electron y módulos permitidos.
@@ -140,7 +140,14 @@ async function main() {
   protectTree(boardDist);
   const runtimeBuild = fs.readFileSync(path.join(SRC, "game", "flash_runtime.page.js"), "utf8").match(/BRIDGE_BUILD = "([^"]+)"/);
   log(`  runtime del juego: ${runtimeBuild ? runtimeBuild[1] : "build desconocido"}`);
+  // 04/10: the game runtime ships exactly as written. Played through the
+  // installed Hub (obfuscated) it lost reactions the same runtime won through
+  // ABRIR_HUB_VIEJO.cmd (plain). BB_PAGE_OBF=1 obfuscates it again.
   for (const rel of PAGE_SCRIPTS) {
+    if (process.env.BB_PAGE_OBF !== "1") {
+      log(`  ✓ ${rel} → sin ofuscar (página del juego)`);
+      continue;
+    }
     const file = path.join(OUT, rel);
     const source = fs.readFileSync(file, "utf8");
     fs.writeFileSync(file, NO_OBF ? source : JSObf.obfuscate(source, PAGE_OBF_OPTS).getObfuscatedCode(), "utf8");
