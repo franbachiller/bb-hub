@@ -34,11 +34,12 @@ cliente, así que el Hub instalado quedaba esperando en el `:9999`.
   sha256 3fc2dabb…), elegido por el usuario. Se descartaron v6_63, v6_64 y la
   prueba con v6_44 del 04/10. `sync-runtime` no reemplaza el runtime
   empaquetado por otro build sin `--force`.
-- Prioridad del cliente: renderers de BoomBangHTML5.exe en High, resto en
-  AboveNormal, reaplicado cada 15 s.
+- El lanzador abre el juego igual que `ABRIR_HUB_Y_CONTROLLER.cmd` (mismos
+  flags, `--remote-allow-origins=*` incluido). Se sacó la prioridad High que
+  se reaplicaba cada 15 s con PowerShell; el `.cmd` nunca la usó.
 - Diagnósticos de combate apagados en la versión distribuida.
 - Inicio muestra nuestro personaje (diseño traído de la rama experimental): el
-  lanzador lee `#BoomBangFlowerPowerAvatar` del juego cada 4 s, fuera del
+  lanzador lee `#BoomBangFlowerPowerAvatar` del juego al conectar y 15 s después, fuera del
   runtime (versión experimental lo mandaba en cada `state`, 4 veces por segundo, dentro del
   camino del timing). Un `blob:` sale como data URL.
 - `npm run sync-runtime` copia `HTML5/hub_runtime/{flash_runtime,ring_scene}.page.js`

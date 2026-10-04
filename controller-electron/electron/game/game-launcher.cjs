@@ -9,7 +9,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn, execFile } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const { safeStorage } = require("electron");
 const { HubBridge } = require("./hub-bridge.cjs");
@@ -22,23 +22,10 @@ const READY_TIMEOUT_MS = 120000;
 const GAME_FRAME_RE = /static\.boombang\.tv\/betahtml5/;
 const RING_SCENE_PATH = path.join(__dirname, "ring_scene.page.js");
 const RUNTIME_PATH = path.join(__dirname, "flash_runtime.page.js");
-const AVATAR_POLL_MS = 4000;
-const PRIORITY_EVERY_MS = 15000;
-// The game's renderers (page + game frame, where the runtime and its timing
-// worker run) at High, the rest of the client above normal: the timing must not
-// queue behind other programs. tools/bb_perf_boost.ps1 did this for the Flash
-// client (BoomBangLauncher.exe) and never matched BoomBangHTML5.exe.
-const PRIORITY_PS = `
-$ErrorActionPreference = "SilentlyContinue"
-Get-CimInstance Win32_Process -Filter "Name='BoomBangHTML5.exe'" | ForEach-Object {
-  $p = Get-Process -Id $_.ProcessId
-  if (-not $p) { return }
-  $want = if ([string]$_.CommandLine -match '--type=renderer') { 'High' } else { 'AboveNormal' }
-  if ($p.PriorityClass.ToString() -ne $want) { $p.PriorityClass = $want }
-}`;
 const AVATAR_MAX_CHARS = 600000;
 // Our character as the game draws it (#BoomBangFlowerPowerAvatar). Read from
-// outside the runtime, every few seconds: nothing on the timing path. A blob:
+// outside the runtime, once after connecting and once more a little later
+// (04/10: no periodic work in the game page beyond what the .cmd did). A blob:
 // URL only exists inside the game, so it goes out as a data URL.
 const AVATAR_JS = `
   const src = document.getElementById("BoomBangFlowerPowerAvatar")?.querySelector("img")?.src || "";
@@ -101,7 +88,6 @@ class GameLauncher extends EventEmitter {
     this.gameFrame = null;
     this.avatarUrl = "";
     this.avatarTimer = null;
-    this.priorityTimer = null;
     this.busy = false;
   }
 
@@ -279,6 +265,7 @@ class GameLauncher extends EventEmitter {
       `--sso-ticket=${ticket.ticket}`,
       "--lang=es",
       `--remote-debugging-port=${CDP_PORT}`,
+      "--remote-allow-origins=*",
       "--disable-background-timer-throttling",
       "--disable-backgrounding-occluded-windows",
       "--disable-renderer-backgrounding"
@@ -437,9 +424,7 @@ class GameLauncher extends EventEmitter {
     this.setState("ready", "Juego conectado.");
     if (this.diagnostics) await this.applyDiagnostics();
     void this.readAvatar();
-    this.avatarTimer = setInterval(() => void this.readAvatar(), AVATAR_POLL_MS);
-    this.boostPriority();
-    this.priorityTimer = setInterval(() => this.boostPriority(), PRIORITY_EVERY_MS);
+    this.avatarTimer = setTimeout(() => void this.readAvatar(), 15000);
 
     const closed = () => {
       if (this.state !== "ready") return;
@@ -447,17 +432,6 @@ class GameLauncher extends EventEmitter {
     };
     this.browser.once("disconnected", closed);
     child?.once("exit", closed);
-  }
-
-  boostPriority() {
-    if (process.platform !== "win32") return;
-    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", PRIORITY_PS],
-      { windowsHide: true, timeout: 10000 }, (error) => {
-        if (error && !this.priorityWarned) {
-          this.priorityWarned = true;
-          this.log(`Juego: no se pudo subir la prioridad: ${error.message}`);
-        }
-      });
   }
 
   async readAvatar() {
@@ -482,9 +456,7 @@ class GameLauncher extends EventEmitter {
   // game stays open; it reconnects when the Hub opens again.
   async teardown(closeGame) {
     await this.closeRecorder();
-    clearInterval(this.avatarTimer);
-    clearInterval(this.priorityTimer);
-    this.priorityTimer = null;
+    clearTimeout(this.avatarTimer);
     this.avatarTimer = null;
     this.gameFrame = null;
     try { this.bridge?.stop(); } catch {}
@@ -502,9 +474,7 @@ class GameLauncher extends EventEmitter {
 
   stop() {
     void this.closeRecorder();
-    clearInterval(this.avatarTimer);
-    clearInterval(this.priorityTimer);
-    this.priorityTimer = null;
+    clearTimeout(this.avatarTimer);
     this.avatarTimer = null;
     try { this.bridge?.stop(); } catch {}
     this.bridge = null;
