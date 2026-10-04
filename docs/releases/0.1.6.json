@@ -1,0 +1,16 @@
+{
+  "version": "0.1.6",
+  "platform": "Windows x64",
+  "installer": "BB Hub Setup 0.1.6.exe",
+  "installerSizeBytes": 126349475,
+  "installerSha256": "161d988efe769663aee229d6f9d46f442b8ca2b53c84d44208bb957392d7f75b",
+  "runtimeBuild": "04102026_html5_hub_v6_68_renderer_positions",
+  "runtimeSha256": "429b11d5603f0e0ef81bb1d4ecaf6b57d1941cc99212e23848e1359c7a15a335",
+  "ringSceneSha256": "e58eb9e34befe6e31a2370ee154594519f0c7591f009a00b02d3c90611ac4b6e",
+  "localPortConflictVerifiedInProtectedPackage": true,
+  "customerValidation": {
+    "date": "2026-10-04",
+    "distinctPcs": 2,
+    "source": "User confirmation"
+  }
+}

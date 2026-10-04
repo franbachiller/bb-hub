@@ -1,0 +1,32 @@
+"use strict";
+const fs=require("node:fs"),path=require("node:path"),vm=require("node:vm"),assert=require("node:assert/strict");
+const file=path.resolve(process.argv[2]||path.join(__dirname,"../electron/game/flash_runtime.page.js"));
+const source=fs.readFileSync(file,"utf8").replace("  window[KEY] = {","  window.__rendererQa = { state, hookRenderer, ensureActorFromRenderer };\n  window[KEY] = {");
+let clock=1000;
+const c=vm.createContext({console,TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,performance:{now:()=>clock},setTimeout:()=>1,clearTimeout(){},setInterval:()=>1,clearInterval(){},document:{hidden:false}});c.window=c;
+vm.runInContext(source,c);
+vm.runInContext(`class Renderer {
+ static instance=new Renderer();
+ avatars=new Map([[1,{position:{x:10,y:10,z:1},avatarInfo:{id:100,username:"Self"}}],[7,{position:{x:15,y:15,z:1},avatarInfo:{id:700,username:"Rival"}}]]);
+ moveUser(id,position,_reconcile,instant) {this.calls=(this.calls||0)+1;if(this.fail)throw Error("native failure");this.avatars.get(id).position={...position};return "native-result";}
+ punchUsers(){}
+};globalThis.renderer=Renderer;`,c);
+const q=c.__rendererQa,R=c.renderer.instance;
+q.state.providers.renderer={exported:c.renderer,instance:R};q.state.selfUsername="Self";
+q.hookRenderer(q.state.providers.renderer);
+q.ensureActorFromRenderer(7);
+assert.equal(R.moveUser(7,{x:11,y:11,z:2},true,true),"native-result");
+const a=q.ensureActorFromRenderer(7);
+assert.equal(a.toX,11,"native position reconciliation must replace the old tile immediately");
+assert.equal(a.toY,11);
+assert.equal(a.moving,false,"a reconciliation must not invent a walking step");
+assert.equal(R.calls,1,"native renderer must run exactly once");
+console.log("PASS current-client position object: authoritative correction reaches timing immediately without a fake step");
+q.state.actors.set(7,{fromX:10,fromY:10,toX:11,toY:11,startAt:clock,stepMs:600,dirX:1,dirY:1,key:"packet-step"});
+R.moveUser(7,{x:11,y:11,z:1},false,false);
+assert.equal(q.state.actors.get(7).key,"packet-step","rendering a step already captured from 182 must not reset its timing or direction");
+console.log("PASS ordinary rendering: the 182 step retains its timestamp and direction");
+R.fail=true;
+assert.throws(()=>R.moveUser(7,{x:13,y:13,z:1},true,true),/native failure/);
+assert.equal(q.state.actors.get(7).key,"packet-step","a rejected native move must not change timing's position");
+console.log("PASS native errors: the error propagates and the rejected position is not applied");

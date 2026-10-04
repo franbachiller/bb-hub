@@ -1,15 +1,21 @@
 # BB Hub
 
 Código privado del Hub, Board y componentes auxiliares. Versión entregable:
-**0.1.3 para Windows x64**. Licencias Basic/Pro mediante Cryptlex; el permiso
+**0.1.6 para Windows x64**, confirmada en dos PCs de clientes el 04/10/2026.
+Licencias Basic/Pro mediante Cryptlex; el permiso
 `ring_board=true` habilita el bot.
 
 Desde 0.1.3 el Hub abre el juego por su cuenta: inicia sesión con la cuenta de
 BoomBang guardada (cifrada con DPAPI), abre `BoomBangHTML5.exe` con CDP, inyecta
-el runtime de `controller-electron/electron/game/` y lo conecta al `:9999`.
+el runtime de `controller-electron/electron/game/` y lo conecta al controller.
+Desde 0.1.6 usa un puerto libre si `:9999` está ocupado y solo muestra la
+conexión lista cuando recibe mensajes del runtime en su propio controller.
 Ya no hacen falta `ABRIR_HUB_Y_CONTROLLER.cmd`, Node ni Playwright en el equipo
-del cliente. El runtime se desarrolla en `HTML5/hub_runtime`; antes de compilar,
-`npm run sync-runtime` copia la versión actual al Hub.
+del cliente. El runtime que empaqueta este repo está en
+`controller-electron/electron/game/`. En el entorno local también existe
+`HTML5/hub_runtime` como laboratorio auxiliar; `npm run sync-runtime` permite
+copiarlo al Hub cuando se desea incorporar un cambio. La compilación normal
+no necesita esa carpeta auxiliar.
 
 ## Compilar
 
@@ -24,6 +30,25 @@ La compilación genera la UI, protege el núcleo con bytecode/ofuscación y
 construye el instalador NSIS. `electron/license/product.dat` y el ID del
 producto identifican el producto; no son credenciales de administración.
 No guardar claves de clientes, tokens administrativos ni certificados en Git.
+
+Pruebas locales desde `controller-electron`:
+
+```powershell
+node qa/client-discovery.cjs
+node qa/port-conflict.cjs
+node qa/runtime-security.cjs
+node qa/timing-renderer-regression.cjs
+node qa/timing-learning-regression.cjs
+node qa/timing-contact-regression.cjs
+node qa/timing-offline-harness.cjs
+```
+
+El harness incluye solo los métodos del cliente necesarios como fixtures;
+no necesita una instalación del juego, capturas ni archivos de recon locales.
+Las pruebas de timing verifican decisiones y protocolo con un reloj controlado;
+no miden latencia real. Para validar el paquete protegido, ejecuta las pruebas
+`qa/packaged-smoke.cjs` y `qa/port-conflict.cjs` con Electron de desarrollo y
+`BB_PACKAGED_APP_DIR` apuntando al directorio `win-unpacked` generado.
 
 ## Versiones y recuperación
 

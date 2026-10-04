@@ -10,6 +10,11 @@ win-unpacked/
 official_client/
 DISTRIBUCION/
 RELEASES/
+!docs/releases/
+!docs/releases/*.json
+DISTRIBUIBLE_*/
+REVERSION_02_OCTUBRE/
+RECUPERACION_TIMING/
 tools/ffdec/
 controller-electron/.hallmark/
 controller-electron/.playwright-cli/
@@ -17,6 +22,7 @@ controller-electron/BB Hub/
 controller-electron/dist/
 controller-electron/dist-next/
 controller-electron/dist-release/
+controller-electron/dist-*/
 controller-electron/dist-ui/
 controller-electron/protected/
 controller-electron/release/
@@ -36,3 +42,6 @@ docs/fiddler vps.txt
 **/*.p12
 **/*.pem
 **/*license-key*
+**/game-account.json
+**/game-options.json
+**/bbhub-settings.json

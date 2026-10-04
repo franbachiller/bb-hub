@@ -125,6 +125,8 @@ const stubApi = {
   submitGameCode: async () => {},
   saveGameAccount: async () => {},
   forgetGameAccount: async () => {},
+  findGameClient: async () => {},
+  selectGameClient: async () => {},
   setCombatLog: async () => {},
   openCombatLogs: async () => {},
   onSnapshot: () => () => {}
@@ -326,7 +328,12 @@ function GameSection({ game, connected, runAction }) {
   return <section className="section" aria-labelledby="game-title">
     <h2 id="game-title" className="section-title">Juego <span className="section-meta">{meta}</span></h2>
     <div className="spec">
-      {!game.clientFound && <Setting title="BoomBang HTML5 no está instalado" text="Instala el launcher oficial de BoomBang y abre el juego una vez desde ahí. Después vuelve al Hub." />}
+      <Setting title={game.clientFound ? "BoomBang HTML5 encontrado" : "No se encontró BoomBang HTML5"} text={game.clientFound ? "El Hub usará esta instalación para abrir el juego." : "Abre HTML5 una vez desde el launcher oficial y vuelve a buscar. Si está en otra carpeta, selecciona su archivo BoomBangHTML5.exe."}>
+        <div className="controls">
+          {!game.clientFound && <button className="btn" disabled={busy || game.state === "ready"} onClick={() => runAction(() => api.findGameClient())}>Buscar de nuevo</button>}
+          <button className="btn btn-quiet" disabled={busy || game.state === "ready" || game.state === "twofa"} onClick={() => runAction(() => api.selectGameClient())}>{game.clientFound ? "Elegir otra instalación" : "Elegir BoomBang HTML5"}</button>
+        </div>
+      </Setting>
       {showForm ? <Setting title="Cuenta de BoomBang" text="Se guarda cifrada en este equipo. El Hub la usa para abrir el juego y conectarse solo." stack>
         <form className="controls" onSubmit={(e) => { e.preventDefault(); saveAndLaunch(); }}>
           <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Usuario" autoComplete="username" aria-label="Usuario de BoomBang" />

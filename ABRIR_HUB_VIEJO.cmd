@@ -21,7 +21,7 @@ if not exist "%RT%\launch_hub_client.js" (
   exit /b 1
 )
 
-echo Copiando el runtime original del 02/10 a HTML5\hub_runtime...
+echo Sincronizando el runtime actual del codigo. Este archivo NO hace rollback historico.
 copy /Y "%HUBDIR%\electron\game\flash_runtime.page.js" "%RT%\flash_runtime.page.js" >nul
 copy /Y "%HUBDIR%\electron\game\ring_scene.page.js" "%RT%\ring_scene.page.js" >nul
 

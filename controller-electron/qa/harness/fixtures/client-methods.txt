@@ -1,0 +1,108 @@
+// Client method fixtures for offline protocol tests. Extracted from the local
+// 2026-09-21 client reference; includes no account, session or captured traffic.
+class $ {
+  ["mBody"];
+  ["finished"] = false;
+  id;
+  ["type"];
+  ["subType"];
+  constructor(t, e = 0, n = 0) {
+    this.id = t;
+    this["type"] = e;
+    this["subType"] = n;
+    this["mBody"] = [177, t & 255];
+    if (e > 0) {
+      this["mBody"]["push"](179, e & 255);
+      if (n > 0) {
+        this["mBody"]["push"](179, n & 255);
+      }
+    }
+    this["mBody"]["push"](179, 178);
+  }
+  get ["length"]() {
+    return this["mBody"]["length"];
+  }
+  ["appendByte"](t) {
+    this["mBody"]["push"](t);
+  }
+  ["appendBytes"](t) {
+    this["mBody"]["push"](...t);
+  }
+  ["appendSeparator"](t = false) {
+    this["mBody"]["push"](179);
+    if (!t) {
+      this["mBody"]["push"](178);
+    }
+  }
+  ["appendParameter"](t, e = false) {
+    if (typeof t === "boolean") {
+      this["mBody"]["push"](...new TextEncoder()["encode"](t ? "1" : "0"));
+    } else if (typeof t === "number") {
+      this["mBody"]["push"](...new TextEncoder()["encode"](t["toString"]()));
+    } else if (typeof t === "string") {
+      if (t !== null) {
+        this["mBody"]["push"](...new Uint8Array([...t]["map"](n => n["charCodeAt"](0))));
+      }
+    } else {
+      this["mBody"]["push"](179, 178);
+      return;
+    }
+    this["mBody"]["push"](179);
+    if (!e) {
+      this["mBody"]["push"](178);
+    }
+  }
+  ["finish"]() {
+    if (!this["finished"]) {
+      this["mBody"]["push"](176);
+      this["finished"] = true;
+    }
+  }
+  ["toByteArray"]() {
+    this["finish"]();
+    return new Uint8Array(this["mBody"]);
+  }
+  ["toString"]() {
+    this["finish"]();
+    return new TextDecoder("windows-1252")["decode"](new Uint8Array(this["mBody"]));
+  }
+}
+function mc()
+
+  ["upperRequest"](t) {
+    const e = performance["now"]();
+    if (e - this["lastUpperAt"] < 100) {
+      return;
+    }
+    this["lastUpperAt"] = e;
+    let n = new $(211);
+    n["appendParameter"](t);
+    W["instance"]["sendServerMessage"](n);
+  }
+  ["changeHobbiesRequest"]
+
+  ["getStaticWalkMatrix"]() {
+    const t = this["spaceModel"];
+    if (!t) {
+      return null;
+    }
+    if (this["_staticWalkMatrixModel"] === t && this["_staticWalkMatrix"]) {
+      return this["_staticWalkMatrix"];
+    }
+    const e = t["escenario"]?.["matrix"]?.["rows"];
+    if (!e || !e["length"]) {
+      return null;
+    }
+    const n = e["map"](s => String(s["data"])["split"](", ")["map"](i => Number(i)));
+    this["_staticWalkMatrix"] = n;
+    this["_staticWalkMatrixModel"] = t;
+    return n;
+  }
+  ["isAvatarSombraSelectable"]
+
+    if (c !== 0 || o !== 0) {
+      const l = c + o;
+      const z = o - c;
+      e.z = z < 0 ? l < 0 ? 6 : l > 0 ? 5 : 3 : z > 0 ? l < 0 ? 8 : l > 0 ? 7 : 4 : l < 0 ? 2 : l > 0 ? 1 : 4;
+    }
+    if (W["instance"]?.["instantCatchUp"]

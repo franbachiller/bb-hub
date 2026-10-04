@@ -435,6 +435,8 @@ class ControllerCore extends EventEmitter {
     super();
     this.settingsPath = options.settingsPath || path.join(process.cwd(), "bbhub-settings.json");
     this.port = safeInt(options.port, TCP_PORT);
+    this.autoPort = options.autoPort === true;
+    this.tcpReady = null;
     this.ringBoardEnabled = options.ringBoard !== false;
     const saved = this.loadSettings();
     try { this.timingHotkey = normalizeHotkey(saved.timingHotkey ?? "F2"); }
@@ -619,13 +621,36 @@ class ControllerCore extends EventEmitter {
   // ---- :9999 bridge --------------------------------------------------------
 
   startTcpServer() {
-    this.tcpServer = net.createServer((socket) => this.handleTcpConnection(socket));
-    this.tcpServer.on("error", (error) => {
-      this.log(`ERROR: no se pudo abrir el puerto ${this.port}: ${error.message}`);
+    const server = net.createServer((socket) => this.handleTcpConnection(socket));
+    this.tcpServer = server;
+    let retried = false;
+    this.tcpReady = new Promise((resolve, reject) => {
+      server.on("error", (error) => {
+        if (this.autoPort && !retried && error.code === "EADDRINUSE") {
+          retried = true;
+          this.log(`Puerto ${this.port} ocupado; buscando un puerto libre para este Hub.`);
+          server.listen(0, "127.0.0.1");
+          return;
+        }
+        this.log(`ERROR: no se pudo abrir el puerto ${this.port}: ${error.message}`);
+        reject(new Error(`No se pudo iniciar la conexión del Hub: ${error.message}`));
+      });
+      server.once("listening", () => {
+        this.port = server.address().port;
+        this.log(`TCP server en 127.0.0.1:${this.port}`);
+        resolve(this.port);
+      });
+      server.listen(this.port, "127.0.0.1");
     });
-    this.tcpServer.listen(this.port, "127.0.0.1", () => {
-      this.log(`TCP server en 127.0.0.1:${this.port}`);
-    });
+    // Startup also serves legacy callers that do not await TCP readiness.
+    this.tcpReady.catch(() => {});
+  }
+
+  async waitForTcpReady() {
+    if (!this.tcpReady) throw new Error("La conexión del Hub todavía no se inició.");
+    const port = await this.tcpReady;
+    if (!this.tcpServer?.listening) throw new Error("La conexión del Hub está detenida.");
+    return port;
   }
 
   handleTcpConnection(socket) {
@@ -710,6 +735,12 @@ class ControllerCore extends EventEmitter {
   handleSwfMessage(data) {
     const type = String(data?.type || "");
     if (type === "state") {
+      // A game left open across Hub restarts keeps boot() ready and does not
+      // repeat hello. Its periodic state still identifies the loaded runtime.
+      if (typeof data.bridgeBuild === "string" && data.bridgeBuild && this.bridgeBuild !== data.bridgeBuild) {
+        this.bridgeBuild = data.bridgeBuild;
+        this.log(`Runtime ${this.bridgeBuild} | selfId=${safeInt(data.selfId, -1)}`);
+      }
       this.updateServerPing(data);
       this.selfId = safeInt(data.selfId, this.selfId);
       this.selectedTarget = safeInt(data.selectedId, this.selectedTarget);

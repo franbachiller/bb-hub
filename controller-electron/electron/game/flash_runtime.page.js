@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "02102026_html5_hub_v6_62_exit_pick";
+  const BRIDGE_BUILD = "04102026_html5_hub_v6_68_renderer_positions";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -3277,21 +3277,31 @@
     const pick = reactPick(true);
     if (!pick) return;
     const E = state.tickEngine;
-    // This tick's click already went to it and lands after the switch.
-    if (E.lastBatchTick != null && (E.tickTargets.get(E.lastBatchTick) === pick.id || E.tickTargets2.get(E.lastBatchTick) === pick.id)) return;
+    // A scheduled click covers this contact while it is still our latest
+    // request. If a sweep has since clicked someone else, do not abandon the
+    // now-confirmed contact just because the earlier primary was sent: it may
+    // have been ignored. The fallback obeys the latest request's server gap.
+    const covered = E.lastBatchTick != null && (E.tickTargets.get(E.lastBatchTick) === pick.id || E.tickTargets2.get(E.lastBatchTick) === pick.id);
+    if (covered && state.lastPunch.targetId === pick.id) return;
     const key = `${pick.id}:${Math.round(E.lastBatchAt)}`;
     if (state.react.lastKey === key) return; // one reaction per rival and batch
     state.react.lastKey = key;
+    const seq = state.seq;
+    const batchTick = E.lastBatchTick;
+    const selfId = inferSelfId();
     const fire = () => {
       // Still in contact and still in play when the shot leaves.
+      if (!tickEnabled() || !state.timing.tick.reactive || state.seq !== seq || E.selfOut || E.lastBatchTick !== batchTick || inferSelfId() !== selfId) return;
       const me = ensureActorFromRenderer(inferSelfId());
       const a = ensureActorFromRenderer(pick.id);
       if (!me || !a || E.out.has(pick.id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
+      if (rivalLocked(pick.id, now() + rttEstimateMs() + E.corr)) return;
       if (state.timing.tick.single) faceBeforeClick(faceSide(me.toX, me.toY, a.toX, a.toY));
-      if (firePunch(pick.id, "REACT", { bypassThrottle: true })) state.react.fired++;
+      if (firePunch(pick.id, covered ? "REACT_FALLBACK" : "REACT", { bypassThrottle: true })) state.react.fired++;
     };
     const t = now();
     const free = (state.lastPunch.at || -1e9) + GUARD_LOCK_MS + 1;
+    if (covered) sendDiagnostic("react_fallback", { targetId: pick.id, previousTargetId: state.lastPunch.targetId, tick: batchTick, waitMs: Math.max(0, free - t) });
     if (t >= free) {
       fire();
     } else {
@@ -3562,8 +3572,6 @@
     });
   }
 
-  // 144 (rejected) or 211 by us (hit): the reply's phase on the grid is when
-  // the server processed the shot, so it measures our landing error.
   function tickOnServerReply(t, kind, targetId = -1) {
     const E = state.tickEngine;
     if (E.origin == null) return;
@@ -3659,10 +3667,7 @@
     tickBounceRetry(best);
   }
 
-  // The tick click bounced (144) but its target IS next to us after the batch:
-  // it landed a hair before the switch (jitter, 26/09: 144s at T+0 and T-3).
-  // An autoclick would click again after the server gap; so do we, once per
-  // tick, landing after the gap of every click we already sent for that tick.
+
   function tickBounceRetry(shot) {
     const E = state.tickEngine;
     if (shot.k !== 0 || shot.reactive || E.bounceRetryTick === shot.n) return;
@@ -3714,7 +3719,9 @@
   //    locks the next 100 ms, so the burst shrinks to 2. No cooldown: the
   //    burst widens to cover the jitter and may start before B.
   // Learned values persist in the game localStorage between sessions.
-  const TICK_AUTO_KEY = "bbhub.tickAuto.v5"; // v5 (02/10): v6_58-60 saved B at -10 (144s read an RTT early); v4 (27/09): B no longer fed with 211 phases (landing + hold); v3 samples were inflated
+  // Recovery uses a fresh namespace: keep previous learning for rollback, but
+  // do not import samples/correction learned from ambiguous or wrong-target replies.
+  const TICK_AUTO_KEY = "bbhub.tickAuto.v6";
   const TICK_AUTO_SAMPLES = 60;
 
   function tickAutoInit() {
@@ -3832,7 +3839,10 @@
     // The server cooldown (100 ms) restarts on each processed request; the
     // next shot must land after it even when both land late.
     const spacing = tickAutoSpacing();
-    const offset = Math.round(Math.max(-120, Math.min(150, A.B + A.margin)));
+    // Preserve the historical arrival floor, not only the margin: a negative
+    // learned boundary must not move a single click to T+0 or before the tick.
+    const floor = cfg.single || A.cooldown !== "none" ? TICK_MARGIN_FLOOR : -120;
+    const offset = Math.round(Math.max(floor, Math.min(150, A.B + A.margin)));
     if (cfg.single) return { auto: true, offset, burst: 1, gap, spacing, shots: 1 };
     return { auto: true, offset, burst, gap, spacing, shots: cfg.shots };
   }
@@ -3847,17 +3857,11 @@
     const eff = tickEffective();
     // With no server cooldown an early request costs nothing: the burst may
     // straddle B. Otherwise an early request wastes the next 100 ms.
-    // 01/10: the floor follows the measured jitter instead of the constant 10.
-    // With the decision off the fire path, a clean session (sigma ~4) may aim
-    // T+5; a messy one keeps today's 10 (26/09: sigma 8 bounced aims at T+6/7).
-    // The absolute floor 4 keeps the aim inside the acceptance window.
-    const lo = A.cooldown === "none" ? -Math.max(5, (eff.burst - 1) * eff.gap)
-      : Math.max(4, Math.min(TICK_MARGIN_FLOOR, Math.round(1.25 * A.sigma)), Math.round(A.sigma / 2));
+    const lo = A.cooldown === "none" ? -Math.max(5, (eff.burst - 1) * eff.gap) : Math.max(TICK_MARGIN_FLOOR, Math.round(A.sigma / 2));
     return [Math.min(lo, TICK_MARGIN_MAX), TICK_MARGIN_MAX];
   }
 
-  // Server phase of a reply that reaches us at t: the downlink cancels
-  // against the batch grid. p is relative to the nearest tick.
+
   function tickAutoPhase(t) {
     const E = state.tickEngine;
     const n = Math.round((t - E.origin) / TICK_MS);
@@ -3991,13 +3995,6 @@
 
   function tickAutoNewContact(n, ours, rival, id = null) {
     const A = state.tickEngine.auto;
-    // 02/10 (v6_61): reply phases are read on the batch grid, which already
-    // carries the downlink. A 144 is answered on landing and comes back one
-    // downlink later - like the batch - so its grid phase IS its landing (the
-    // reply matcher finds our 144s at the aimed phase +-3 ms live). v6_58
-    // subtracted the RTT again: before-samples fell outside the window and late
-    // 144s (REACT/RETRY, ~T+170) became after-samples at ~T-10, so B sank to its
-    // floor (-10) and Auto aimed at T-3.
     // After our hit the enemy is down, after its hit we are: later 144s say
     // nothing about the switch.
     const firstHit = ours.find((r) => r.kind === "hit") || null;
@@ -4024,7 +4021,7 @@
     // Only the click aimed at this tick says something about the aim: a late
     // reaction that wins, or a tick we did not click, must not move it.
     const E = state.tickEngine;
-    const aimed = E.shots.find((x) => x.n === n && x.k === 0 && x.b === 0 && x.ok && !x.reactive);
+    const aimed = E.shots.find((x) => x.n === n && x.k === 0 && x.b === 0 && x.ok && !x.reactive && (id == null || x.targetId === id));
     // A valid hit is held 50-160 ms before its 211 (dual-lab July: 185 of 185,
     // idle defender) and held hits resolve in landing order (who fires 30+ ms
     // first wins 95%). So a hit phase is aim + hold, and a rival hit while our
@@ -4040,17 +4037,15 @@
     tickAutoRace(outcome, n, firstHit ? firstHit.p : early[0] ? early[0].p : null, rival ? rival.p : null, step);
   }
 
-  // Lost contact: hits were processed before the switch. With no hit at all,
-  // every 144 was processed after it.
+
   function tickAutoLostContact(ours) {
     const hits = ours.filter((r) => r.kind === "hit");
     // 27/09: a hit landed before the switch, but its 211 phase adds the hold: no sample.
     if (hits.length) return;
-    for (const r of ours) tickAutoSample(r.p, true); // grid phase = landing (see tickAutoNewContact)
+    for (const r of ours) tickAutoSample(r.p, true);
   }
 
-  // Landing phase of the click aimed at tick n that drew no 144 and whose hit
-  // resolved after it (hold 0-200 ms): that click landed after the switch.
+
   function tickAutoAcceptedLanding(n, id, hitPhase) {
     const E = state.tickEngine;
     const A = E.auto;
@@ -5197,6 +5192,28 @@
     const owner = provider.exported && provider.exported.prototype;
     safeWrap(owner, "moveUser", "__bbFlashMoveUserHook", (original) =>
       function hookedMoveUser(userSpaceId, x, y, orientation, stepMs) {
+        // Native renderer: (id, position, reconcile, instant). Packet 182
+        // already records ordinary steps; replaying them here resets their
+        // timestamp and direction. Instant corrections have no walking step.
+        if (x && typeof x === "object") {
+          const result = original.apply(this, arguments);
+          try {
+            const id = asId(userSpaceId);
+            const px = Number(x.x), py = Number(x.y);
+            if (orientation === true && id != null && this.avatars?.has?.(id) &&
+                Number.isFinite(px) && Number.isFinite(py)) {
+              const stamp = Math.round(now());
+              state.actors.set(id, {
+                fromX: px | 0, fromY: py | 0, toX: px | 0, toY: py | 0,
+                dirX: 0, dirY: 0, startAt: stamp, endAt: stamp,
+                stepMs: 0, moving: false, orient: Number(x.z) || 0,
+                key: `${id}:${px | 0},${py | 0}`
+              });
+              tickPreflightInvalidate();
+            }
+          } catch {}
+          return result;
+        }
         try {
           const id = asId(userSpaceId);
           if (id != null && Number.isFinite(Number(x)) && Number.isFinite(Number(y))) {
