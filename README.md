@@ -5,9 +5,10 @@ Código privado del Hub, Board y componentes auxiliares. Versión entregable:
 Licencias Basic/Pro mediante Cryptlex; el permiso
 `ring_board=true` habilita el bot.
 
-La rama local `dev/timing-auto-target` prepara **0.1.7 de prueba**:
-fichar no decide los golpes automáticos y la UI muestra el último disparo
-real. Sigue pendiente comprobar su reacción en una partida real; 0.1.6
+La rama local `dev/timing-auto-target` prepara **0.1.8 de prueba**:
+fichar no decide los golpes automáticos, la UI muestra el último disparo
+real y un intento anticipado ya no anula la reacción al contacto confirmado.
+Sigue pendiente comprobar su reacción en una partida real; 0.1.6
 conserva la validación de clientes. Ver `controller-electron/RELEASE.md`.
 
 Desde 0.1.3 el Hub abre el juego por su cuenta: inicia sesión con la cuenta de

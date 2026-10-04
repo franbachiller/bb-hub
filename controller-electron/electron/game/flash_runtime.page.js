@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "04102026_html5_hub_v6_69_automatic_target";
+  const BRIDGE_BUILD = "04102026_html5_hub_v6_70_confirmed_contact";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -3291,12 +3291,12 @@
     const pick = reactPick(true);
     if (!pick) return;
     const E = state.tickEngine;
-    // A scheduled click covers this contact while it is still our latest
-    // request. If a sweep has since clicked someone else, do not abandon the
-    // now-confirmed contact just because the earlier primary was sent: it may
-    // have been ignored. The fallback obeys the latest request's server gap.
+    // Only a request sent after this batch saw the confirmed contact. A blind
+    // request sent before the walk-in may have been ignored, even at the same
+    // rival (04/10 Dylaan recording). Keep the reaction after the server gap;
+    // a confirmed hit marks the rival out and cancels it through reactPick.
     const covered = E.lastBatchTick != null && (E.tickTargets.get(E.lastBatchTick) === pick.id || E.tickTargets2.get(E.lastBatchTick) === pick.id);
-    if (covered && state.lastPunch.targetId === pick.id) return;
+    if (covered && state.lastPunch.targetId === pick.id && state.lastPunch.at >= E.lastBatchAt) return;
     const key = `${pick.id}:${Math.round(E.lastBatchAt)}`;
     if (state.react.lastKey === key) return; // one reaction per rival and batch
     state.react.lastKey = key;
@@ -3694,6 +3694,10 @@
     }
     if (shot.n !== E.lastBatchTick) return;
     const id = shot.targetId;
+    // The confirmed-contact reaction may already have replaced this blind
+    // request. Its delayed reject must not cause a third click in the gap.
+    if (state.lastPunch.targetId === id && state.lastPunch.at >= E.lastBatchAt &&
+        ["REACT", "REACT_FALLBACK"].includes(state.lastPunch.reason)) return;
     const me = ensureActorFromRenderer(inferSelfId());
     const a = ensureActorFromRenderer(id);
     if (!me || !a || E.out.has(id) || isMuted(id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
