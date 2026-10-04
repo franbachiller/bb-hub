@@ -30,14 +30,10 @@ cliente, así que el Hub instalado quedaba esperando en el `:9999`.
   otro ajuste: un T+N manual tocado una vez volvía en cada inicio (`auto:
   false` en las capturas del 03 y 04/10, contra `auto: true` el 02/10), sin
   aprender, y en T+0 los clicks rebotaban.
-- Runtime v6_44 (`29092026_html5_hub_v6_44_silent_gap`, 29/09), idéntico al
-  baseline `pre_v645` (sha256 0636d4ee…). Se sacó todo lo posterior (v6_45 a
-  v6_64, 01/10-04/10): el usuario confirma que esas versiones nunca pegaron como
-  el 29/09. Entre otras cosas, v6_44 decide el golpe al disparar (sin
-  precálculo al llegar el lote), Auto no baja de T+10 y no le pega a rivales
-  parados a 2 casillas en diagonal. El coco propio (`coco_self`) no existe en
-  v6_44: el Hub lo manda y el runtime lo ignora. `sync-runtime` ya no reemplaza
-  el runtime empaquetado por otro build sin `--force`.
+- Runtime: el v6_62 original del 02/10 (`02102026_html5_hub_v6_62_exit_pick`,
+  sha256 3fc2dabb…), elegido por el usuario. Se descartaron v6_63, v6_64 y la
+  prueba con v6_44 del 04/10. `sync-runtime` no reemplaza el runtime
+  empaquetado por otro build sin `--force`.
 - Prioridad del cliente: renderers de BoomBangHTML5.exe en High, resto en
   AboveNormal, reaplicado cada 15 s.
 - Diagnósticos de combate apagados en la versión distribuida.
