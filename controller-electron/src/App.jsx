@@ -125,6 +125,8 @@ const stubApi = {
   submitGameCode: async () => {},
   saveGameAccount: async () => {},
   forgetGameAccount: async () => {},
+  setCombatLog: async () => {},
+  openCombatLogs: async () => {},
   onSnapshot: () => () => {}
 };
 
@@ -342,6 +344,12 @@ function GameSection({ game, connected, runAction }) {
         <div className="controls">
           {game.state !== "ready" && <button className="btn btn-primary" disabled={busy || !game.clientFound} onClick={() => runAction(() => api.launchGame())}>{busy ? "Abriendo…" : "Abrir juego"}</button>}
           <button className="btn btn-quiet" disabled={busy} onClick={() => { setUsername(game.username); setEditing(true); }}>Cambiar cuenta</button>
+        </div>
+      </Setting>}
+      {game.hasAccount && <Setting title="Registro de combate" text={game.diagnostics ? "Grabando cada pelea (paquetes, disparos y decisiones del timing) para revisarla después." : "Apagado. Actívalo para guardar las peleas y analizar por qué el timing hizo lo que hizo."}>
+        <div className="controls">
+          <button className="btn btn-quiet" onClick={() => runAction(() => api.openCombatLogs())}>Abrir carpeta</button>
+          <Toggle label="Registro de combate" checked={Boolean(game.diagnostics)} onChange={(value) => runAction(() => api.setCombatLog(value))} />
         </div>
       </Setting>}
     </div>

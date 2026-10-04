@@ -1,6 +1,6 @@
 const path = require("path");
 const fs = require("fs");
-const { app, BrowserWindow, globalShortcut, ipcMain } = require("electron");
+const { app, BrowserWindow, globalShortcut, ipcMain, shell } = require("electron");
 const { ControllerCore } = require("./controller-core.cjs");
 const gate = require("./license/gate.cjs");
 const { normalizeHotkey } = require("./hotkey.cjs");
@@ -237,6 +237,12 @@ function wireIpc() {
   handle("game:submitCode", (_event, code) => launcher.submitTwoFactor(typeof code === "string" ? code : ""));
   handle("game:saveAccount", (_event, username, password) => launcher.saveAccount(typeof username === "string" ? username : "", typeof password === "string" ? password : ""));
   handle("game:forgetAccount", () => launcher.forgetAccount());
+  handle("game:setDiagnostics", (_event, enabled) => launcher.setDiagnostics(enabled === true));
+  handle("game:openCaptures", () => {
+    const dir = path.join(app.getPath("userData"), "combate");
+    fs.mkdirSync(dir, { recursive: true });
+    return shell.openPath(dir);
+  });
 
   core.on("snapshot", (snapshot) => {
     sendSnapshot(snapshot);
@@ -370,6 +376,8 @@ function startApp() {
   // Replaces ABRIR_HUB_Y_CONTROLLER.cmd: the Hub opens BoomBang itself.
   launcher = new GameLauncher({
     accountPath: path.join(app.getPath("userData"), "game-account.json"),
+    optionsPath: path.join(app.getPath("userData"), "game-options.json"),
+    captureRoot: path.join(app.getPath("userData"), "combate"),
     clientExe: path.join(app.getPath("appData"), "boombang-launcher", "clients", "2", "BoomBangHTML5.exe"),
     hubPort: core.port,
     log: (line) => core.log(line)

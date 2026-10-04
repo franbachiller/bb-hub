@@ -155,6 +155,8 @@ export function createDemoApi(base) {
     launchGame: patch(() => { snap.game = { ...snap.game, state: "ready", message: "Juego conectado." }; }),
     submitGameCode: async () => {},
     saveGameAccount: patch((username) => { snap.game = { ...snap.game, hasAccount: true, username }; }),
+    setCombatLog: patch((value) => { snap.game = { ...snap.game, diagnostics: Boolean(value) }; }),
+    openCombatLogs: async () => {},
     forgetGameAccount: patch(() => { snap.game = { ...snap.game, hasAccount: false, username: "", state: "idle", message: "" }; }),
     onSnapshot: (fn) => { listeners.add(fn); return () => listeners.delete(fn); }
   };
