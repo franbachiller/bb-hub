@@ -36,6 +36,10 @@ cliente, así que el Hub instalado quedaba esperando en el `:9999`.
   al asesino sin reacción; el 04/10, la muerte capturada también (click a
   ciegas 161 ms antes de que llegara, sin 144, golpe del rival en T+253; la
   reacción aterriza ~T+170). `sync-runtime` no baja de versión.
+- Runtime v6_64 (`floor10`): Auto vuelve a no bajar de T+10, como en v6_44.
+  El piso del 01/10 seguía al jitter medido y en una sesión limpia (sigma 2-3)
+  bajaba hasta T+4 (04/10: 111 de 154 primeros clicks en T+4). Las capturas
+  del 03/10 se quedaban en T+12 solo porque el jitter medido ahí era alto.
 - Prioridad del cliente: renderers de BoomBangHTML5.exe en High, resto en
   AboveNormal, reaplicado cada 15 s.
 - Diagnósticos de combate apagados en la versión distribuida.
