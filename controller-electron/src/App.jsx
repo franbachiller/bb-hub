@@ -178,6 +178,7 @@ function App() {
     return needle ? players.filter((p) => [p.name, p.id, p.userId].some((v) => String(v ?? "").toLowerCase().includes(needle))) : players;
   }, [players, playerFilter]);
   const selectedPlayer = players.find((p) => p.id === snapshot.selectedTarget);
+  const automaticPlayer = snapshot.connected ? players.find((p) => !p.self && p.id !== snapshot.selfId && p.id === snapshot.tick?.lastTargetId) : null;
   const selfPlayer = players.find((p) => p.self || p.id === snapshot.selfId);
   const ping = [snapshot.serverPingMs, snapshot.bridgePingMs].find((value) => value != null && Number.isFinite(Number(value)) && Number(value) >= 0);
   const status = !snapshot.connected ? "Sin conexión" : snapshot.lastStateAgeMs > 2500 ? "Señal demorada" : "Conectado";
@@ -200,7 +201,7 @@ function App() {
     })) setDropHunterDirty(false);
   };
   const openPlayer = async (id) => { await runAction(() => api.selectTarget(id)); setActiveTab("players"); };
-  const context = { snapshot, selectedPlayer, selfPlayer, players, filteredPlayers, playerFilter, setPlayerFilter, dropHunterForm, dropHunterDirty, updateDropHunter, applyDropHunter, applyTiming, runAction, openPlayer, setActiveTab, status, statusTone };
+  const context = { snapshot, selectedPlayer, automaticPlayer, selfPlayer, players, filteredPlayers, playerFilter, setPlayerFilter, dropHunterForm, dropHunterDirty, updateDropHunter, applyDropHunter, applyTiming, runAction, openPlayer, setActiveTab, status, statusTone };
 
   const combat = snapshot.combat || fallbackSnapshot.combat;
   const winRate = snapshot.tick?.auto?.recentWinRate;
@@ -233,9 +234,9 @@ function App() {
             <div className="stat stat-coco"><dt>Coco</dt><dd className={cocoActive ? "num is-warn" : "num"}>{cocoActive ? `${(snapshot.exit.cocoRemainingMs / 1000).toFixed(1)} s` : "Libre"}</dd></div>
           </dl>
           <div className="strip-actions">
-            <button className={`target ${selectedPlayer ? "has-target" : ""}`} onClick={() => setActiveTab("players")} title="Elegir objetivo">
+            <button className={`target ${automaticPlayer ? "has-target" : ""}`} onClick={() => setActiveTab("players")} title="Último disparo de Timing">
               <Target aria-hidden="true" size={15} strokeWidth={1.8} />
-              <span className="target-name">{selectedPlayer?.name || "Sin objetivo"}</span>
+              <span className="target-name">{automaticPlayer?.name || "Sin disparos"}</span>
             </button>
             <button className="btn btn-danger" onClick={stopModes}><Square aria-hidden="true" size={11} fill="currentColor" /><span>Detener todo</span></button>
           </div>
@@ -255,7 +256,7 @@ function App() {
   );
 }
 
-function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, applyTiming, applyDropHunter, dropHunterForm, runAction, openPlayer, setActiveTab }) {
+function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, automaticPlayer, applyTiming, applyDropHunter, dropHunterForm, runAction, openPlayer, setActiveTab }) {
   const ring = snapshot.ringBoard || fallbackSnapshot.ringBoard;
   const hunter = snapshot.dropHunter || fallbackSnapshot.dropHunter;
   const combat = snapshot.combat || fallbackSnapshot.combat;
@@ -277,11 +278,11 @@ function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, applyTim
       <section className="section" aria-labelledby="session-title">
         <h2 id="session-title" className="section-title">Sesión <span className="section-meta">{snapshot.connected ? "en vivo" : "en espera"}</span></h2>
         <div className="lead-figure lead-figure-inline"><span>Llegada estimada</span><b className="num">{auto ? signedMs(auto.aimMs) : "—"}</b></div>
-        <dl className="readout"><div><dt>Objetivo</dt><dd className={selectedPlayer ? "is-accent" : ""}>{selectedPlayer?.name || "Sin seleccionar"}</dd></div><div><dt>Frontera del server</dt><dd className="mono">{auto ? `${signedMs(auto.boundaryMs)} · ${auto.samples} muestras` : "—"}</dd></div><div><dt>Variación</dt><dd className="mono">{auto?.sigmaMs == null ? "—" : `${auto.sigmaMs} ms`}</dd></div></dl>
+        <dl className="readout"><div><dt>Último disparo de Timing</dt><dd className={automaticPlayer ? "is-accent" : ""}>{automaticPlayer?.name || "Sin disparos"}</dd></div><div><dt>Frontera del server</dt><dd className="mono">{auto ? `${signedMs(auto.boundaryMs)} · ${auto.samples} muestras` : "—"}</dd></div><div><dt>Variación</dt><dd className="mono">{auto?.sigmaMs == null ? "—" : `${auto.sigmaMs} ms`}</dd></div></dl>
       </section>
       <section className="section" aria-labelledby="room-title">
         <h2 id="room-title" className="section-title">En sala <span className="section-meta">{players.length} jugadores</span></h2>
-        {players.length ? <ul className="roster">{players.slice(0, 5).map((p) => <li key={p.id}><button className={`roster-row ${p.selected ? "is-target" : ""}`} onClick={() => openPlayer(p.id)}>{p.self && avatarUrl && <img src={avatarUrl} alt="" className="roster-avatar" />}<span className="roster-name">{p.name || `Jugador ${p.id}`}</span><span className="roster-meta mono">{p.self ? "tú" : `#${p.id}`} · {p.x}, {p.y}</span>{p.selected && <span className="flag flag-accent">Objetivo</span>}{p.self && <span className="flag">Tú</span>}<ArrowUpRight aria-hidden="true" size={15} className="roster-arrow" /></button></li>)}</ul> : <EmptyState icon={Users} title="Sin jugadores en la sala." text="Aparecen al conectar el cliente." compact />}
+        {players.length ? <ul className="roster">{players.slice(0, 5).map((p) => <li key={p.id}><button className={`roster-row ${p.id === automaticPlayer?.id ? "is-target" : ""}`} onClick={() => openPlayer(p.id)}>{p.self && avatarUrl && <img src={avatarUrl} alt="" className="roster-avatar" />}<span className="roster-name">{p.name || `Jugador ${p.id}`}</span><span className="roster-meta mono">{p.self ? "tú" : `#${p.id}`} · {p.x}, {p.y}</span>{p.id === automaticPlayer?.id && <span className="flag flag-accent">Timing</span>}{p.selected && <span className="flag">Fichado</span>}{p.self && <span className="flag">Tú</span>}<ArrowUpRight aria-hidden="true" size={15} className="roster-arrow" /></button></li>)}</ul> : <EmptyState icon={Users} title="Sin jugadores en la sala." text="Aparecen al conectar el cliente." compact />}
         <button className="link" onClick={() => setActiveTab("players")}>Ver jugadores <ArrowRight aria-hidden="true" size={14} /></button>
       </section>
     </div>
@@ -645,9 +646,9 @@ function DropHunterView({ snapshot, dropHunterForm, updateDropHunter, applyDropH
 }
 
 function PlayersView({ snapshot, filteredPlayers, selectedPlayer, playerFilter, setPlayerFilter, runAction }) {
-  return <><PageHeading title="Jugadores" description={`${(snapshot.players || []).length} en la sala. Elige una fila para marcarla como objetivo.`} />
-    <div className="toolbar"><Search value={playerFilter} onChange={setPlayerFilter} label="Buscar jugadores" placeholder="Nombre, ID o usuario" /><p className={`toolbar-note ${selectedPlayer ? "has-target" : ""}`}><Target aria-hidden="true" size={14} strokeWidth={1.8} />{selectedPlayer ? <>Objetivo <b>{selectedPlayer.name}</b> <span className="mono">#{selectedPlayer.id}</span></> : "Elige un objetivo en la lista"}</p></div>
-    <div className="table-surface"><table><thead><tr><th scope="col"><span className="sr-only">Marca</span></th><th scope="col">Jugador</th><th scope="col">ID</th><th scope="col">Usuario</th><th scope="col">Estado</th><th scope="col">Skin</th><th scope="col" className="num-col">X</th><th scope="col" className="num-col">Y</th><th scope="col" className="num-col">Dir.</th><th scope="col" className="num-col">Coco</th></tr></thead><tbody>{filteredPlayers.map((p) => { const isTarget = p.selected || p.id === snapshot.selectedTarget; const mark = ({ SELF: "TÚ", SEL: "OBJETIVO", TARGET: "OBJETIVO" })[p.mark] || p.mark; return <tr key={p.id} className={`${p.self ? "is-self" : ""} ${isTarget ? "is-target" : ""}`} onClick={() => runAction(() => api.selectTarget(p.id))}><td className="mark-cell">{mark && <span className={`flag ${p.self ? "" : "flag-accent"}`}>{mark === "TÚ" ? "Tú" : mark === "OBJETIVO" ? "Objetivo" : mark}</span>}</td><td className="name-cell"><button onClick={(event) => { event.stopPropagation(); runAction(() => api.selectTarget(p.id)); }} aria-label={`Seleccionar a ${p.name || p.id}`} aria-pressed={p.selected || p.id === snapshot.selectedTarget}>{p.name || `Jugador ${p.id}`}{p.self && <small>tú</small>}</button></td><td className="mono">{p.id}</td><td className="mono">{p.userId}</td><td className="mono">{p.state}</td><td>{p.skin}</td><td className="num-col mono">{p.x}</td><td className="num-col mono">{p.y}</td><td className="num-col mono">{p.orient}</td><td className={`num-col mono ${p.cocoMs > 0 ? "is-warn" : ""}`}>{p.cocoMs > 0 ? `${(p.cocoMs / 1000).toFixed(1)} s` : "—"}</td></tr>; })}</tbody></table>{!filteredPlayers.length && <EmptyState icon={Users} title={playerFilter ? "Ninguna coincidencia." : "Todavía no hay nadie."} text={playerFilter ? "Prueba otro nombre o identificador." : "Los jugadores aparecen al conectar el cliente."} action={playerFilter && <button className="btn" onClick={() => setPlayerFilter("")}>Quitar filtro <X aria-hidden="true" size={14} /></button>} />}</div>
+  return <><PageHeading title="Jugadores" description={`${(snapshot.players || []).length} en la sala. Fichar un personaje no cambia los golpes automáticos de Timing.`} />
+    <div className="toolbar"><Search value={playerFilter} onChange={setPlayerFilter} label="Buscar jugadores" placeholder="Nombre, ID o usuario" /><p className={`toolbar-note ${selectedPlayer ? "has-target" : ""}`}><Target aria-hidden="true" size={14} strokeWidth={1.8} />{selectedPlayer ? <>Fichado <b>{selectedPlayer.name}</b> <span className="mono">#{selectedPlayer.id}</span></> : "Fichar es opcional"}</p></div>
+    <div className="table-surface"><table><thead><tr><th scope="col"><span className="sr-only">Marca</span></th><th scope="col">Jugador</th><th scope="col">ID</th><th scope="col">Usuario</th><th scope="col">Estado</th><th scope="col">Skin</th><th scope="col" className="num-col">X</th><th scope="col" className="num-col">Y</th><th scope="col" className="num-col">Dir.</th><th scope="col" className="num-col">Coco</th></tr></thead><tbody>{filteredPlayers.map((p) => { const isTarget = p.selected || p.id === snapshot.selectedTarget; const mark = ({ SELF: "TÚ", SEL: "FICHADO", TARGET: "FICHADO" })[p.mark] || p.mark; return <tr key={p.id} className={`${p.self ? "is-self" : ""} ${isTarget ? "is-target" : ""}`} onClick={() => runAction(() => api.selectTarget(p.id))}><td className="mark-cell">{mark && <span className={`flag ${p.self ? "" : "flag-accent"}`}>{mark === "TÚ" ? "Tú" : mark === "FICHADO" ? "Fichado" : mark}</span>}</td><td className="name-cell"><button onClick={(event) => { event.stopPropagation(); runAction(() => api.selectTarget(p.id)); }} aria-label={`Seleccionar a ${p.name || p.id}`} aria-pressed={p.selected || p.id === snapshot.selectedTarget}>{p.name || `Jugador ${p.id}`}{p.self && <small>tú</small>}</button></td><td className="mono">{p.id}</td><td className="mono">{p.userId}</td><td className="mono">{p.state}</td><td>{p.skin}</td><td className="num-col mono">{p.x}</td><td className="num-col mono">{p.y}</td><td className="num-col mono">{p.orient}</td><td className={`num-col mono ${p.cocoMs > 0 ? "is-warn" : ""}`}>{p.cocoMs > 0 ? `${(p.cocoMs / 1000).toFixed(1)} s` : "—"}</td></tr>; })}</tbody></table>{!filteredPlayers.length && <EmptyState icon={Users} title={playerFilter ? "Ninguna coincidencia." : "Todavía no hay nadie."} text={playerFilter ? "Prueba otro nombre o identificador." : "Los jugadores aparecen al conectar el cliente."} action={playerFilter && <button className="btn" onClick={() => setPlayerFilter("")}>Quitar filtro <X aria-hidden="true" size={14} /></button>} />}</div>
   </>;
 }
 

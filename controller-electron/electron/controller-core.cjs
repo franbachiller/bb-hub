@@ -368,6 +368,8 @@ function normalizeTickStatus(raw) {
   const a = raw.auto && typeof raw.auto === "object" ? raw.auto : {};
   const num = (value) => (value == null || !Number.isFinite(Number(value)) ? null : Math.round(Number(value)));
   return {
+    lastTargetId: safeInt(raw.lastTargetId, -1),
+    lastTargetReason: String(raw.lastTargetReason || ""),
     enabled: Boolean(raw.enabled),
     synced: Boolean(raw.synced),
     coherence: safeNumber(raw.coherence, 0),
@@ -1756,8 +1758,9 @@ class ControllerCore extends EventEmitter {
     const allyKeys = this.boardAllyKeys();
     const isAllyPlayer = (p) => !p.self && (allyKeys.has(String(p.name || "").trim().toLowerCase()) || allyKeys.has(String(p.userId)));
     const players = Array.from(this.players.values()).filter((p) => !isAllyPlayer(p));
-    const allyIds = new Set(Array.from(this.players.values()).filter(isAllyPlayer).map((p) => p.id));
-    const boardTarget = allyIds.has(this.selectedTarget) ? -1 : this.selectedTarget;
+    // Board chooses from geometry and its own brain. A game ficha must never
+    // become a locked target or override its autonomous choice.
+    const boardTarget = -1;
     const scene = this.buildRingBoardScene(players, swfTs);
     const sceneKey = `${scene.sceneHash}:${scene.width}x${scene.height}`;
     if (sceneKey !== this.ringBoardLastSceneKey || nowWall - this.ringBoardLastSceneAt > 1000) {
@@ -1844,7 +1847,7 @@ class ControllerCore extends EventEmitter {
       stepDur,
       phase,
       moving: wireBool(player.moving),
-      targetLock: wireBool(player.selected),
+      targetLock: false,
       combatState: normalizeCombatState(player.combatState, player.state),
       lockUntilTs: safeInt(player.lockUntil, 0),
       walkFlag: safeInt(player.walkFlag, 1),

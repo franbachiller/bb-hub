@@ -1,5 +1,39 @@
 # BB Hub — distribución Windows
 
+## 0.1.7 de prueba — ficha independiente del combate automático
+
+El usuario observó que un clic para fichar parecía cambiar a quién golpeaba
+Timing. La auditoría confirmó que el selector TICK principal de v6_68 ya
+elegía por amenazas sin consultar la ficha. Se encontraron dependencias
+reales en los modos antiguos STEP/contacto/landing/STATE/GRID/MOVE_DELAY,
+el pulso automático y las preferencias enviadas a Board. Esto no demuestra
+todavía que la ficha sea la causa de la pérdida de reacción del TICK actual.
+
+El runtime v6_69 usa amenazas y proximidad en esas rutas antiguas, da prioridad
+a la proximidad cuando el pulso es automático y no permite que un disparo
+automático sin rival válido caiga al fichado. Board recibe la selección sin
+preferencias y las entidades sin `targetLock`. El TICK activo evita incluso
+leer el getter nativo de la ficha en su ruta de movimiento. No se modifican
+su calibración, compensación, ventana ni cooldowns.
+
+La UI distingue «Fichado» de «Último disparo de Timing», calculado después de
+enviar realmente el golpe. Esa información se reinicia al cambiar de sala
+y nunca presenta a nuestro propio personaje como rival automático.
+
+La entrega local está en `../PRUEBAS_0.1.7/BB Hub Setup 0.1.7.exe`.
+Pruebas de selección: sin fichar, fichado propio, rival próximo, lejano y
+aliado; contacto entre cuatro enemigos; rutas heredadas; preferencias de
+Board; reporte del golpe; movimiento STATE con la opción TICK inactiva aún
+marcada. También se comprueban las 48 pruebas del harness y las regresiones
+de posición, aprendizaje y contacto. Se verifica de nuevo el núcleo
+protegido, la UI empaquetada y el ASAR extraído del instalador.
+
+El sistema de licencias, configuración de Cryptlex, detección del juego,
+conexión por puerto libre y keko/nombre se conservan. El instalador excluye
+cuentas y ajustes personales. Esta versión aún requiere validación jugando;
+0.1.6 sigue siendo la entrega confirmada en dos PCs de clientes. La prueba
+no se publica en GitHub ni en el actualizador.
+
 ## 0.1.6 — conexión cuando el puerto está ocupado
 
 El registro del cliente confirmó `EADDRINUSE` en `127.0.0.1:9999`: el juego
