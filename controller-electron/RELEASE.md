@@ -26,6 +26,10 @@ cliente, así que el Hub instalado quedaba esperando en el `:9999`.
   y el avatar en cada `state`. Se recuperó desde la copia de Gemini anterior
   a esos cambios, sin su código de avatar; tiene lo documentado de v6_60–v6_62.
   `sync-runtime` rechaza un runtime con esos cambios.
+- "Llegada del click" se guarda al elegirla. Antes solo se guardaba junto con
+  otro ajuste: un T+N manual tocado una vez volvía en cada inicio (`auto:
+  false` en las capturas del 03 y 04/10, contra `auto: true` el 02/10), sin
+  aprender, y en T+0 los clicks rebotaban.
 - Diagnósticos de combate apagados en la versión distribuida.
 - Inicio muestra nuestro personaje (diseño traído de la rama de Gemini): el
   lanzador lee `#BoomBangFlowerPowerAvatar` del juego cada 4 s, fuera del

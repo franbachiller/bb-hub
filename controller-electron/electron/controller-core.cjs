@@ -1282,6 +1282,10 @@ class ControllerCore extends EventEmitter {
 
   setTickAim(value) {
     this.tickAim = normalizeTickAim(value);
+    // 04/10: saved right away. It used to ride on the next unrelated save, so a
+    // manual T+N clicked once came back on every start (auto: false, no learning)
+    // even after choosing Auto again.
+    this.persistSettings();
     this.log(this.tickAim == null ? "TICK llegada -> AUTO" : `TICK llegada -> MANUAL T+${this.tickAim} ms`);
     return this.applyTiming({ enabled: Boolean(this.timing?.enabled) });
   }
