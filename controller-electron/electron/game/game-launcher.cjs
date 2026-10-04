@@ -13,6 +13,7 @@ const { spawn } = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const { safeStorage } = require("electron");
 const { HubBridge } = require("./hub-bridge.cjs");
+const { createDiagnosticRecorder } = require("./diagnostic-recorder.cjs");
 
 const BACKEND = "https://backend-launcher.boombang.tv";
 const CDP_PORT = 9230;
@@ -66,9 +67,15 @@ async function requestJson(url, options) {
 }
 
 class GameLauncher extends EventEmitter {
-  constructor({ accountPath, clientExe, hubPort, log }) {
+  constructor({ accountPath, optionsPath, captureRoot, clientExe, hubPort, log }) {
     super();
     this.accountPath = accountPath;
+    this.optionsPath = optionsPath;
+    this.captureRoot = captureRoot;
+    // Combat log (hub_diagnostics.ndjson, same format as the .cmd captures): off
+    // unless turned on from Inicio. Combat only: never auth, tickets or chat.
+    this.diagnostics = this.readOptions().diagnostics === true;
+    this.recorder = null;
     this.clientExe = clientExe;
     this.hubPort = hubPort;
     this.log = typeof log === "function" ? log : () => {};
@@ -92,6 +99,8 @@ class GameLauncher extends EventEmitter {
       username: account?.username || "",
       hasAccount: Boolean(account),
       avatarUrl: this.avatarUrl,
+      diagnostics: this.diagnostics,
+      captureFile: this.recorder?.file || "",
       clientFound: fs.existsSync(this.clientExe)
     };
   }
@@ -101,6 +110,42 @@ class GameLauncher extends EventEmitter {
     this.message = message;
     if (message) this.log(`Juego: ${message}`);
     this.emit("change");
+  }
+
+  readOptions() {
+    try { return JSON.parse(fs.readFileSync(this.optionsPath, "utf8")) || {}; } catch { return {}; }
+  }
+
+  async setDiagnostics(enabled) {
+    this.diagnostics = enabled === true;
+    try {
+      fs.mkdirSync(path.dirname(this.optionsPath), { recursive: true });
+      fs.writeFileSync(this.optionsPath, JSON.stringify({ ...this.readOptions(), diagnostics: this.diagnostics }), "utf8");
+    } catch {}
+    if (this.gameFrame) await this.applyDiagnostics();
+    if (!this.diagnostics) await this.closeRecorder();
+    this.log(`Registro de combate ${this.diagnostics ? "activado" : "desactivado"}.`);
+    this.emit("change");
+    return this.diagnostics;
+  }
+
+  async applyDiagnostics() {
+    if (this.diagnostics && !this.recorder) {
+      const session = new Date().toISOString().replace(/[:.]/g, "-");
+      const dir = path.join(this.captureRoot, `hub-client-${session}`);
+      fs.mkdirSync(dir, { recursive: true });
+      this.recorder = createDiagnosticRecorder(dir, { enabled: true, onError: (error) => this.log(`Registro de combate: ${error.message}`) });
+      this.log(`Registro de combate: ${this.recorder.file}`);
+    }
+    if (this.gameFrame) {
+      await inPage(this.gameFrame, `window.__BBFlashRuntime?.onHubMessage?.({ type: "diagnostic_config", enabled: ${arg(this.diagnostics)} });`).catch(() => {});
+    }
+  }
+
+  async closeRecorder() {
+    const recorder = this.recorder;
+    this.recorder = null;
+    try { await recorder?.close(); } catch {}
   }
 
   // ---- Account (stored encrypted with the Windows user's key, DPAPI) --------
@@ -295,8 +340,10 @@ class GameLauncher extends EventEmitter {
       }
     });
     const relay = (obj) => {
-      // Combat diagnostics stay off in the distributed Hub.
-      if (obj?.type === "diagnostic_event") return;
+      if (obj?.type === "diagnostic_event") {
+        this.recorder?.record(obj);
+        return;
+      }
       this.bridge?.send(obj);
     };
     await page.exposeFunction("__bbHubSend", relay);
@@ -374,6 +421,7 @@ class GameLauncher extends EventEmitter {
     await inPage(frame, `window.__BBFlashRuntime?.setHubConnected?.(${arg(Boolean(this.bridge.connected))});`).catch(() => {});
     this.log(`Juego: runtime ${boot.bridgeBuild || "?"} listo.`);
     this.setState("ready", "Juego conectado.");
+    if (this.diagnostics) await this.applyDiagnostics();
     void this.readAvatar();
     this.avatarTimer = setInterval(() => void this.readAvatar(), AVATAR_POLL_MS);
 
@@ -406,6 +454,7 @@ class GameLauncher extends EventEmitter {
   // closeGame: also kill a client we started (failed launch). On Hub exit the
   // game stays open; it reconnects when the Hub opens again.
   async teardown(closeGame) {
+    await this.closeRecorder();
     clearInterval(this.avatarTimer);
     this.avatarTimer = null;
     this.gameFrame = null;
@@ -423,6 +472,7 @@ class GameLauncher extends EventEmitter {
   }
 
   stop() {
+    void this.closeRecorder();
     clearInterval(this.avatarTimer);
     this.avatarTimer = null;
     try { this.bridge?.stop(); } catch {}

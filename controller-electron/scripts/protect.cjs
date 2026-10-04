@@ -30,7 +30,8 @@ const PROTECT = [
   "hotkey.cjs",
   "license/gate.cjs",
   "game/game-launcher.cjs",
-  "game/hub-bridge.cjs"
+  "game/hub-bridge.cjs",
+  "game/diagnostic-recorder.cjs"
 ];
 
 // Runtime que se inyecta en la página del juego. Solo renombrado (sin string
