@@ -389,7 +389,9 @@ function startApp() {
   createWindow();
   registerHotkeys();
   setTimeout(() => {
-    if (runtimeAllowed && launcher.readAccount()) launcher.launch().catch((error) => core.log(`Juego: ${error.message}`));
+    // ABRIR_HUB_VIEJO.cmd (dev only): the HTML5 .cmd opens the game, not the Hub.
+    const noGame = !app.isPackaged && process.env.BB_HUB_NO_GAME === "1";
+    if (runtimeAllowed && !noGame && launcher.readAccount()) launcher.launch().catch((error) => core.log(`Juego: ${error.message}`));
   }, 1500);
   setTimeout(() => { if (runtimeAllowed) void updater.check(); }, 5000);
   updateTimer = setInterval(() => { if (runtimeAllowed) void updater.check(); }, 6 * 60 * 60 * 1000);
