@@ -1,0 +1,45 @@
+{
+  "version": "0.1.8",
+  "channel": "local-test",
+  "platform": "Windows x64",
+  "installer": "BB Hub Setup 0.1.8.exe",
+  "installerSizeBytes": 126348702,
+  "installerSha256": "1a20cf2c7337c504dad37b74d80c786f4b849a0a747f7fb4abe6f8943546d8a4",
+  "runtimeBuild": "04102026_html5_hub_v6_70_confirmed_contact",
+  "runtimeSha256": "9f627db1aaa79e14b02ed2ec7cad890f47c50dab000ccccd81e666e94346eff2",
+  "asarSha256": "c4ba1c0833599ef077e537d9ae5e0d8d50dedae5566ea3a977b60cd10601550d",
+  "finding": {
+    "recordedIncomingHitUtc": "2026-10-04T18:18:44.726Z",
+    "blindRequestBeforeIncomingHitMs": 365,
+    "contactStepBeforeIncomingHitMs": 199,
+    "stationarySelf": true,
+    "reactionSuppressionReproduced": true
+  },
+  "validation": {
+    "automatedSuitesPassed": [
+      "timing-contact-regression",
+      "timing-offline-harness",
+      "timing-renderer-regression",
+      "timing-learning-regression",
+      "timing-selection-regression",
+      "runtime-security",
+      "client-discovery",
+      "port-conflict",
+      "protected-combat",
+      "packaged-smoke",
+      "verify-distribution",
+      "verify-installer"
+    ],
+    "combatHarnessCases": 48,
+    "contactRegressionCases": 7,
+    "selectionCases": 9,
+    "protectedPackagePassed": true,
+    "installerMatchesTestedPackage": true,
+    "actualGameplayValidated": false,
+    "allMissedCrossingsExplained": false
+  },
+  "licenseSystemChanged": false,
+  "personalConfigurationExcluded": true,
+  "publishedToGitHub": false,
+  "publishedToUpdater": false
+}

@@ -1,5 +1,34 @@
 # BB Hub — distribución Windows
 
+## 0.1.8 de prueba — reacción al contacto después de un intento anticipado
+
+El registro del 04/10/2026 a las 15:18:44 (Argentina) muestra a Herbert
+quieto en 19,13 y a Dylaan entrando en 18,12. Timing envió un `TICK_BLIND`
+al rival 365 ms antes del golpe recibido; el movimiento que confirmó el
+contacto llegó 199 ms antes de ese golpe. No hubo confirmación del intento
+propio en ese intervalo. `reactCheck` anulaba la reacción porque el rival
+ya figuraba como objetivo del intento anticipado, equiparando envío con
+contacto cubierto.
+
+v6_70 conserva la reacción si el último disparo hacia ese rival salió
+antes del batch que confirmó el contacto. Respeta el gap existente de
+100 ms; una confirmación de impacto, cambio de sala o desactivación
+cancela el disparo pendiente. Un disparo al mismo rival posterior al batch
+sigue evitando duplicados. Un rechazo tardío del intento anticipado no
+añade un tercer click cuando la reacción ya salió.
+
+La prueba reproduce los tiempos y posiciones registrados, con nuestro
+personaje quieto, en Ring y escenas fuera de Ring. Falló con v6_69 y pasa
+con la corrección. Se mantienen las 48 pruebas de combate, selección,
+aprendizaje y posición; se verifica también el runtime del paquete protegido
+y su correspondencia con el instalador. Esto demuestra el fallo y la
+corrección de esa supresión; no prueba todavía que explique todos los
+cruces omitidos ni que gane la carrera en el servidor real.
+
+Entrega local: `../PRUEBAS_0.1.8/BB Hub Setup 0.1.8.exe`, runtime
+`04102026_html5_hub_v6_70_confirmed_contact`. Conserva 0.1.7, licencias y
+Cryptlex. Pendiente validación jugando; sin publicación remota.
+
 ## 0.1.7 de prueba — ficha independiente del combate automático
 
 El usuario observó que un clic para fichar parecía cambiar a quién golpeaba

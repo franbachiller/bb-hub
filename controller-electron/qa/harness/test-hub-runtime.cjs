@@ -748,11 +748,13 @@ const api = context.__BBFlashRuntime;
   assert.deepEqual(singleFrames.map((b) => b[1]), [211], "the click alone (no turn: facing does not matter)");
   let singleSent = singleFrames.filter((b) => b[1] === 211).map((b) => b.slice(4, 6));
   assert.deepEqual(singleSent, [[51, 48]], "the click goes to 30, lateral once our step lands");
-  // The batch confirms it: no second (reaction) click at the same rival.
+  // The batch confirms contact, not the earlier blind request's success.
+  // No hit/reject replied: react at the same rival after the server gap.
   context.time = 78600;
   inbound(182, 0, [1, 1, 11, 11, 1, 600, 0]);
   while (timers2.length) timers2.shift().fn();
-  assert.equal(run("fixture.Socket.instance.frames.length"), framesSingle + 1);
+  assert.equal(run("fixture.Socket.instance.frames.length"), framesSingle + 2);
+  assert.ok(run("fixture.Socket.instance.frames").at(-1).at - run("fixture.Socket.instance.frames")[framesSingle].at >= 100, "confirmed contact fallback respects the request gap");
   // A walk sent too late for tick 133 (it reaches the server after it) must
   // not count: at 79800 we are still next to 30.
   context.time = 79150;
@@ -763,7 +765,7 @@ const api = context.__BBFlashRuntime;
   walkTo(10, 10);
   context.time = single2.fires[0].dueAt;
   context.__worker.onmessage({ data: { type: "fire", planId: single2.planId, index: 0, dueAt: single2.fires[0].dueAt, seq: single2.seq, window: "TICK" } });
-  singleSent = Array.from(run("fixture.Socket.instance.frames").slice(framesSingle + 2), (fr) => Array.from(fr.bytes)).filter((b) => b[1] === 211).map((b) => b.slice(4, 6));
+  singleSent = Array.from(run("fixture.Socket.instance.frames").slice(framesSingle + 3), (fr) => Array.from(fr.bytes)).filter((b) => b[1] === 211).map((b) => b.slice(4, 6));
   assert.deepEqual(singleSent, [[51, 48]], "late walk: still lateral to 30 at that tick");
   timers2.length = 0;
   context.setTimeout = savedSetTimeout2;
@@ -772,7 +774,7 @@ const api = context.__BBFlashRuntime;
   inbound(182, 0, [1, 1, 10, 10, 2, 600, 0]);
   inbound(182, 0, [1, 7, 11, 11, 8, 600, 0]);
   api.onHubMessage({ type: "timing_config", enabled: false, source: "STEP" });
-  console.log("PASS single click: one click per tick at the rival next to our step, no double click, late walks handled");
+  console.log("PASS single click: tick prediction plus contact fallback after the gap, late walks handled");
 
 
   // Our tick click wins the race: the margin tightens (and only then).
@@ -1309,11 +1311,11 @@ const api = context.__BBFlashRuntime;
     const T = api.status().tick.origin + n * 600;
     context.time = T; inbound(182, 0, [1, 42, 11, 11, 2, 600, 0]); // next to us now
     while (timersB.length) timersB.shift().fn();
-    assert.equal(run("fixture.Socket.instance.frames.length"), framesB, "the tick click already went to it: no reaction");
+    assert.equal(run("fixture.Socket.instance.frames.length"), framesB + 1, "the blind request gets a confirmed-contact reaction");
     context.time = T + 2; inbound(144, 0, []); // ...but it bounced
     while (timersB.length) timersB.shift().fn();
     const retrySent = Array.from(run("fixture.Socket.instance.frames").slice(framesB), (fr) => Array.from(fr.bytes)).filter((b) => b[1] === 211).map((b) => b.slice(4, 6));
-    assert.deepEqual(retrySent, [[52, 50]], "one retry at 42");
+    assert.deepEqual(retrySent, [[52, 50]], "one fallback at 42; the delayed reject adds no duplicate retry");
     context.setTimeout = savedST;
     avsB.delete(42);
     for (const [id, av] of othersB) avsB.set(id, av);
