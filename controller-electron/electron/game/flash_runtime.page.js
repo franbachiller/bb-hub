@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "04102026_html5_hub_v6_64_floor10";
+  const BRIDGE_BUILD = "29092026_html5_hub_v6_44_silent_gap";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -30,9 +30,6 @@
   // races (+3/+4 each) then pushed it to 39 and it was saved, so clicks landed
   // at T+31 against rivals at T+6-8. It may not climb past this.
   const TICK_MARGIN_MAX = 16;
-  // 01/10: a dispatch this late reads as landing error (one-sided); those
-  // rejects are excluded from corr/sigma instead of calibrating on them.
-  const TICK_CAL_MAX_LATE_MS = 5;
   // Hub UI still configures windows on the Flash 0..750 scale.
   // HTML5 Ring step duration is ~600ms — scale Hub values onto the live stepMs.
   const STEP_HUB_REF_MS = 750;
@@ -133,14 +130,6 @@
         burstGapMs: 4
       }
     },
-    // EXPERIMENTAL (02/10, pedido del usuario): "disparo libre". Vive FUERA de
-    // timing.tick a proposito (no debe romper la invariante Hub<->runtime del
-    // clamp del tick). Cuando enabled, el tick rellena TODA su ventana con
-    // disparos cada gapMs al mejor objetivo (threatPick se re-evalua por tiro),
-    // ignorando el espaciado interno de ~100 ms, el sweep/repeat y la guarda de
-    // cooldown. El hueco de 100 ms del SERVER sigue existiendo (los tiros de mas
-    // se dropean), asi que PUEDE rendir peor: es para medir. OFF por defecto.
-    freeFire: { enabled: false, gapMs: 25 },
     stateCfg: {
       enabled: false,
       delay: 0
@@ -211,9 +200,6 @@
       lastDir: "",
       lastAt: 0
     },
-    // Rolling tap of every packet (in+out) for the shell server-REPL. In memory
-    // only, never written to disk by the runtime; the harness pulls it via CDP.
-    rawTap: { on: false, ring: [], max: 4000 },
     performance: {
       stateMs: 250,
       sceneMs: 2000,
@@ -267,9 +253,6 @@
       armedTick: null,
       plans: new Map(),
       shots: [],
-      // Every punch any engine dispatched (firePunch success path): lets a 144
-      // know when another engine's request could own it (attribution gate).
-      allShots: [],
       errs: [],
       corr: 0,
       lastErr: null,
@@ -282,7 +265,6 @@
       bursts: [],
       auto: tickAutoInit(),
       tickTargets: new Map(), // tick n -> enemy our click for that tick went to
-      tickBlind: new Map(), // tick n -> true when that click left blind (before batch n was known)
       tickTargets2: new Map(), // tick n -> runner-up of a near tie (second click)
       selfWalkAt: 0,
       walkReqs: [], // our walk requests the server keeps (see WALK_THROTTLE_MS)
@@ -308,7 +290,7 @@
       runlock: new Map(),
       runlockStats: { armed: 0, fired: 0, noContact: 0, lastTarget: -1 },
       sweepStats: { fired: 0 },
-      stats: { planned: 0, fired: 0, blocked: 0, skipped: 0, blind: 0, reactive: 0, replies: 0, hits: 0, calibrated: 0, calSkippedLate: 0, calSkippedAmbiguous: 0, hitsUnmatched: 0, lastSkip: "" }
+      stats: { planned: 0, fired: 0, blocked: 0, skipped: 0, blind: 0, reactive: 0, replies: 0, hits: 0, lastSkip: "" }
     },
     // Step walk: our walks go to the server one tile per tick (see stepWalkIntercept).
     stepWalk: { enabled: true, goal: null, internal: false, sentAt: 0, from: null, retries: 0, steps: 0, walks: 0, gaveUp: 0 },
@@ -331,18 +313,11 @@
     // 29/09: off by default. On cryptic (ping ~25) 20 of 29 ticks a rival hit us without
     // a click from us had been skipped as "ping_bajo": the reaction never came in time.
     lowPing: { mode: "off", skipped: 0 },
-    noThrottle: { enabled: true, installed: false, skipped: 0 },
     burstAB: false,
     burstRound: 0,
     // 27/09 coco guard: a coco at the rival waiting next to us, landing before our
     // upper animation ends (cocos can be thrown during it and are not held).
-    // 01/10: leadMs 300 -> 60. The ambusher of our unlock often steps in at the
-    // last tick before the lock ends (live: Glotona entered at end-240); at
-    // +300 the guard judged adjacency one tick too early (23x "nadie_pegado",
-    // 0 throws today). At +60 its check runs after that batch. selfMode
-    // "auto": the self-coco fallback when the guard can no longer cover the
-    // unlock (see cocoSelfOnStep).
-    cocoGuard: { enabled: true, upperEnd: 0, leadMs: 60, max: 3, used: 0, fired: 0, noTarget: 0, lastTarget: -1, selfMode: "auto", selfEnd: 0, selfKey: "", selfKeyInstalled: false, thrown: [], pending: new Map() },
+    cocoGuard: { enabled: true, upperEnd: 0, leadMs: 300, max: 3, used: 0, fired: 0, noTarget: 0, lastTarget: -1, pending: new Map() },
     // 28/09 reach probe: one click at a rival 1-2 tiles away but not beside us.
     // Off (28/09 night): 0 accepted of ~420 (pc and android-app), and every bounce
     // costs 100 ms of server gap. reach_probe_config turns it back on.
@@ -1514,7 +1489,6 @@
     if (isAlly(id)) { state.allies.blocked++; return false; }
     const upper = providerInstance(state.providers.upper);
     if (!upper || typeof upper.upperRequest !== "function") return false;
-    noThrottleInstall();
     // Engine shots that would land inside our coco are ignored by the server.
     if (!["CTRL", "manual"].includes(reason) && state.tickEngine.selfOut) {
       state.stats.outHeld = (state.stats.outHeld || 0) + 1;
@@ -1573,10 +1547,6 @@
         E.silentPending.push({ id, at: t });
         while (E.silentPending.length > 20) E.silentPending.shift();
       }
-      // Common registry of every punch (28/09): a 144 names no request, so the
-      // tick calibration must know when another engine's could own it.
-      E.allShots.push({ at: t, targetId: id, reason: reason || "CTRL" });
-      while (E.allShots.length > 40) E.allShots.shift();
     }
     state.lastFireResult = { targetId: id, reason: reason || "CTRL", calls: packets, sentCount, errors, ts: now() };
     sendDiagnostic("fire_attempt", state.lastFireResult);
@@ -2947,13 +2917,6 @@
   // if the first click was valid, the server simply ignores it.
   const SWEEP_MIN_SCORE = 0.05;
   const TICK_BLIND_MIN_P = 0.0005;
-  // 01/10: the July model gives a STANDING rival one diagonal step from contact
-  // (|dx|,|dy| = 1 and 2) P = 0 - measured on a crowd that rarely stepped in.
-  // The smart ones exploit it: they stand one step out and step+click on the
-  // tick they choose (7 deaths today: the killer was the best candidate at P=0).
-  // Their punch processes at T+60-90 (held train), our tick click at T+10 beats
-  // it - but only if we actually fire. The floor makes them a real candidate.
-  const THREAT_STEP_FLOOR = 0.03;
   const LOW_PING_MS = 60;
   const LOW_PING_BLIND_MIN = 0.9; // a standing rival already beside us: 0.975
   function lowPingActive() {
@@ -2998,7 +2961,6 @@
     E.armedTick = null;
     E.plans.clear();
     E.shots = [];
-    E.allShots = [];
     E.cont.clear();
     E.down.clear();
     E.selfDest = null;
@@ -3014,7 +2976,6 @@
     E.auto.lastRaceN = null;
     E.tickTargets.clear();
     E.tickTargets2.clear();
-    E.tickBlind.clear();
     E.out.clear();
     E.outGone.clear();
     E.selfOut = false;
@@ -3070,7 +3031,6 @@
     if (E.walkReqs.length > 8) E.walkReqs.shift();
     E.selfDest = { x, y };
     E.selfWalkAt = t;
-    tickPreflightInvalidate();
   }
 
   function tickProjectSelf(actor, tickLocal) {
@@ -3147,8 +3107,6 @@
         } else {
           const movedLast = a.startAt >= E.lastBatchAt - 30 && (a.dirX || a.dirY);
           q = contactProb(dx, dy, movedLast ? DIR_ORIENT[`${a.dirX},${a.dirY}`] || 0 : 0);
-          // One diagonal step from contact is one step from killing us.
-          if (d === 2 && dx !== 0 && dy !== 0 && q < THREAT_STEP_FLOOR) q = THREAT_STEP_FLOOR;
         }
         q *= spot.w;
         if (q > p) { p = q; dist = d; from = spot; }
@@ -3280,14 +3238,7 @@
     if (!pick) return;
     const E = state.tickEngine;
     // This tick's click already went to it and lands after the switch.
-    // 04/10 (v6_63): only when that click knew the contact. A blind one was a
-    // guess that can land without registering (live 04/10: blind click at the
-    // rival 161 ms before it walked in, no 144, reaction skipped, it hit us at
-    // T+253; the reaction lands ~T+170). If the guess did hit we are already in
-    // our animation and this click is ignored; if it bounced, its 100 ms gap
-    // ended before this one lands.
-    const n = E.lastBatchTick;
-    if (n != null && ((E.tickTargets.get(n) === pick.id && !E.tickBlind.get(n)) || E.tickTargets2.get(n) === pick.id)) return;
+    if (E.lastBatchTick != null && (E.tickTargets.get(E.lastBatchTick) === pick.id || E.tickTargets2.get(E.lastBatchTick) === pick.id)) return;
     const key = `${pick.id}:${Math.round(E.lastBatchAt)}`;
     if (state.react.lastKey === key) return; // one reaction per rival and batch
     state.react.lastKey = key;
@@ -3347,41 +3298,6 @@
     return { id: pick.id, reactive: known, score: pick.score, face: pick.face, dual };
   }
 
-  // 01/10: the tick decision reads only what the batch already delivered, so it
-  // runs when the batch settles (setTimeout 0 after its last step) and the fire
-  // path keeps only timestamp checks and the request itself. Same data, ~500 ms
-  // of slack instead of the 12 ms the fire wake gets - that margin of dispatch
-  // is what lets the aim ride closer to the boundary.
-  let tickPreflightPendingAt = 0; // a lost timer must not switch the preflight off
-  function tickPreflightSchedule() {
-    if (tickPreflightPendingAt && now() - tickPreflightPendingAt < 100) return;
-    tickPreflightPendingAt = now();
-    setTimeout(() => {
-      tickPreflightPendingAt = 0;
-      const E = state.tickEngine;
-      if (!tickEnabled() || E.lastBatchTick == null || E.origin == null) return;
-      const plan = E.plans.get(`TICK:${E.lastBatchTick + 1}`);
-      if (!plan || plan.pre) return;
-      const phase = plan.shots[0]?.phase;
-      if (phase == null) return;
-      const landing = E.origin + plan.n * TICK_MS + phase;
-      const t0 = now();
-      const pick = tickPickTarget(plan.n, t0, landing);
-      const best = !pick || pick.skip ? threatPick(landing, 0) : null;
-      plan.pre = { pick, best, ms: Math.round((now() - t0) * 10) / 10 };
-    }, 0);
-  }
-
-  // 01/10 (v6_60): the preflight is only "same data" until something changes
-  // between the batch and the shot. Our own walk request is the big one: 20 of
-  // 26 sweep-late deaths today were a preflight made before we stepped next to a
-  // standing rival (P 0.986) - the shot went to the old pick at P 0.03 and the
-  // killer only got the sweep, 110 ms late. Same for a 211/coco that locks a rival.
-  function tickPreflightInvalidate() {
-    for (const plan of state.tickEngine.plans.values()) if (plan.pre) plan.pre = null;
-    tickPreflightSchedule();
-  }
-
   function tickPump() {
     if (!tickEnabled()) return;
     const E = state.tickEngine;
@@ -3398,36 +3314,23 @@
     // shot k lands at T + offset + k*spacing; shot 0 expands into a dense
     // burst (b = 0..burst-1, burstGapMs apart), all of it after T.
     const shots = [];
-    if (state.freeFire.enabled) {
-      // EXPERIMENTAL: ignora el espaciado de ~100 ms. Rellena la ventana entera
-      // del tick con disparos cada gapMs al mejor objetivo (sin la guarda de
-      // cooldown ni el sweep/repeat). El hueco del server sigue; es para medir.
-      const gapMs = clamp(state.freeFire.gapMs | 0, 4, 200);
-      let k = 0;
-      for (let phase = offset; phase < offset + TICK_MS; phase += gapMs, k++) {
-        shots.push({ phase, k: k === 0 ? 0 : k, b: 0, free: true });
-      }
-    } else {
-      for (let k = 0; k < eff.shots; k++) {
-        const base = offset + k * eff.spacing;
-        // Keep the server cooldown clear for the next tick's first shot.
-        if (base > TICK_MS - 110 + offset) break;
-        const count = k === 0 ? eff.burst : 1;
-        for (let b = 0; b < count; b++) shots.push({ phase: base + b * eff.gap, k, b });
-      }
-      const adv = state.tickAdv;
-      if (cfg.single && eff.shots === 1 && cfg.blind && adv.repeatMs > 0) shots.push({ phase: offset + adv.repeatMs + burstSpanMs(), k: 1, b: 0, repeat: true });
-      else if (cfg.single && eff.shots === 1 && cfg.blind && adv.sweep && !lowPingActive()) shots.push({ phase: offset + eff.spacing + SWEEP_EXTRA_MS + burstSpanMs(), k: 1, b: 0, sweep: true });
+    for (let k = 0; k < eff.shots; k++) {
+      const base = offset + k * eff.spacing;
+      // Keep the server cooldown clear for the next tick's first shot.
+      if (base > TICK_MS - 110 + offset) break;
+      const count = k === 0 ? eff.burst : 1;
+      for (let b = 0; b < count; b++) shots.push({ phase: base + b * eff.gap, k, b });
     }
+    const adv = state.tickAdv;
+    if (cfg.single && eff.shots === 1 && cfg.blind && adv.repeatMs > 0) shots.push({ phase: offset + adv.repeatMs + burstSpanMs(), k: 1, b: 0, repeat: true });
+    else if (cfg.single && eff.shots === 1 && cfg.blind && adv.sweep && !lowPingActive()) shots.push({ phase: offset + eff.spacing + SWEEP_EXTRA_MS + burstSpanMs(), k: 1, b: 0, sweep: true });
     const fires = [];
     shots.forEach((shot, index) => {
       const at = E.origin + n * TICK_MS + shot.phase - lead;
       fires.push({ index, dueAt: at, delayMs: Math.max(0, at - t - SPIN_EARLY_MS) });
     });
     const planId = `TICK:${n}`;
-    // o/lead: the frame the plan was armed in. Replies are judged against it,
-    // not against the current origin (a refit in between used to shift err).
-    E.plans.set(planId, { n, shots, burst: state.freeFire.enabled ? 1 : eff.burst, fired: 0, burstTarget: null, o: E.origin, lead });
+    E.plans.set(planId, { n, shots, burst: eff.burst, fired: 0, burstTarget: null });
     while (E.plans.size > 4) E.plans.delete(E.plans.keys().next().value);
     E.stats.planned++;
     try {
@@ -3496,16 +3399,13 @@
       if (plan.burstTarget == null) return;
       pick = { id: plan.burstTarget, reactive: plan.burstReactive, score: plan.burstScore };
     } else {
-      // 01/10: precomputed at batch settle (same data); without a preflight
-      // (no batch, late arm) the decision happens here, as before.
-      const pre = plan.pre;
-      pick = pre ? pre.pick : tickPickTarget(plan.n, t, E.origin + plan.n * TICK_MS + phase);
+      pick = tickPickTarget(plan.n, t, E.origin + plan.n * TICK_MS + phase);
       if (!pick || pick.skip) {
         E.stats.skipped++;
         E.stats.lastSkip = pick?.skip || "none";
         if (state.diagnostics.enabled) {
-          const best = pre ? pre.best : threatPick(E.origin + plan.n * TICK_MS + phase, 0);
-          sendDiagnostic("tick_skip", { tick: plan.n, reason: pick?.skip || "none", bestId: best ? best.id : -1, bestP: best ? best.score : 0, bestDist: best ? best.dist : null, pre: pre ? 1 : 0 });
+          const best = threatPick(E.origin + plan.n * TICK_MS + phase, 0);
+          sendDiagnostic("tick_skip", { tick: plan.n, reason: pick?.skip || "none", bestId: best ? best.id : -1, bestP: best ? best.score : 0, bestDist: best ? best.dist : null });
         }
         if (shot.k === 0) plan.burstTarget = null;
         return;
@@ -3521,11 +3421,8 @@
       }
     }
     const inBurst = shot.k === 0 && plan.burst > 1;
-    // The face goes out ~SPIN_EARLY_MS before the punch: the server processes
-    // rotations in order before it, and what is left after the spin is the
-    // punch request itself.
-    const faced = state.timing.tick.single && !E.selfOut ? faceBeforeClick(pick.face) : false;
     spinUntil(Number(msg.dueAt));
+    const faced = state.timing.tick.single && !E.selfOut ? faceBeforeClick(pick.face) : false;
     const sentAt = now();
     const ok = firePunch(pick.id, pick.repeat ? "TICK_REPEAT" : pick.sweep ? "TICK_SWEEP" : pick.reactive ? "TICK_REACT" : "TICK_BLIND", { bypassThrottle: true });
     if (ok && pick.repeat) state.tickAdv.repeats++;
@@ -3536,19 +3433,17 @@
     } else if (ok) {
       E.tickTargets.set(plan.n, pick.id);
       while (E.tickTargets.size > 8) E.tickTargets.delete(E.tickTargets.keys().next().value);
-      E.tickBlind.set(plan.n, !pick.reactive);
-      while (E.tickBlind.size > 8) E.tickBlind.delete(E.tickBlind.keys().next().value);
     }
     const burst = inBurst ? E.bursts.findLast((x) => x.n === plan.n) : null;
     if (burst && ok) burst.sent++;
-    const first = { sentAt, dueAt: Number(msg.dueAt), late: 0, o: plan.o, n: plan.n, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, ok, matched: false, burst };
+    const first = { sentAt, n: plan.n, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, ok, matched: false, burst };
     E.shots.push(first);
     if (ok && pick.dual && shot.b === 0) {
       // No turn for it: a valid first click must keep its facing.
       spinUntil(sentAt + 3);
       const okDual = firePunch(pick.dual.id, "TICK_DUAL", { bypassThrottle: true });
       if (okDual) {
-        const dualShot = { sentAt: now(), dueAt: sentAt + 3, late: 0, o: plan.o, n: plan.n, k: shot.k, b: 1, dual: true, phase: phase + 3, targetId: pick.dual.id, reactive: false, ok: true, matched: false, burst: null, pair: first };
+        const dualShot = { sentAt: now(), n: plan.n, k: shot.k, b: 1, dual: true, phase: phase + 3, targetId: pick.dual.id, reactive: false, ok: true, matched: false, burst: null, pair: first };
         first.pair = dualShot;
         E.shots.push(dualShot);
         E.tickTargets2.set(plan.n, pick.dual.id);
@@ -3563,13 +3458,12 @@
     if (pick.reactive) E.stats.reactive++;
     else E.stats.blind++;
     const late = Math.round(sentAt - Number(msg.dueAt));
-    first.late = late;
     sendTimingMetric("fire", "STEP", pick.id, phase, phase + late, late, TICK_MS, 1, ok,
       `tick n=${plan.n} k=${shot.k} b=${shot.b} ${pick.reactive ? "react" : "blind"} score=${pick.score} corr=${Math.round(E.corr)}`,
       { window: "TICK", scheduler: "worker", tickPhase: phase, corrMs: Math.round(E.corr), rttMs: rttEstimateMs(), reactive: pick.reactive });
     sendDiagnostic("tick_fire", {
       tick: plan.n, index, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, score: pick.score, ok, face: faced ? pick.face : 0,
-      lateMs: late, corrMs: E.corr, origin: E.origin, rttMs: rttEstimateMs(), burst: state.tickBurst, pre: plan.pre ? 1 : 0, preMs: plan.pre?.ms ?? null
+      lateMs: late, corrMs: E.corr, origin: E.origin, rttMs: rttEstimateMs(), burst: state.tickBurst
     });
   }
 
@@ -3579,21 +3473,14 @@
     const E = state.tickEngine;
     if (E.origin == null) return;
     // The server handles requests in order: a reply belongs to the earliest
-    // unanswered shot whose expected reply time is close to it. Expected times
-    // use each shot's saved origin (the frame it was planned in): a refit
-    // between arming and reply used to shift err by the drift (28/09).
+    // unanswered shot whose expected reply time is close to it.
     const tol = 60 + 2 * E.auto.sigma;
-    const shotO = (s) => (s.o == null ? E.origin : s.o);
     let best = null;
     for (const s of E.shots) {
       if (s.matched || !s.ok || s.sentAt > t) continue;
-      // A hit names its defender: only a shot aimed at him can own the reply
-      // (28/09: 6 of 25 hits were matched to a shot aimed at someone else).
-      if (kind === "hit" && targetId >= 0 && s.targetId !== targetId) continue;
-      if (Math.abs(t - (shotO(s) + s.n * TICK_MS + s.phase)) > tol) continue;
+      if (Math.abs(t - (E.origin + s.n * TICK_MS + s.phase)) > tol) continue;
       if (!best || s.sentAt < best.sentAt) best = s;
     }
-    if (kind === "hit" && targetId >= 0 && !best) E.stats.hitsUnmatched++;
     // Near-tie pair: a 144 belongs to the one that did not end next to us.
     if (best && kind === "reject") {
       const other = best.pair && !best.pair.matched ? best.pair : null;
@@ -3611,62 +3498,27 @@
       best.burst.replies++;
       if (kind === "hit") best.burst.hits++;
     }
-    const observed = tickWrap(t - shotO(best));
+    const observed = tickWrap(t - E.origin);
     const err = tickWrap(observed - best.phase);
-    const errAdj = tickWrap(err - (best.late || 0));
     E.stats.replies++;
     if (kind === "hit") E.stats.hits++;
     // Only a 144 measures the landing: it is answered on arrival, while a hit
     // is held 50-160 ms before its 211. Hits used to push corr up ~10 ms each
     // and inflate sigma (26/09 live: we then landed 9 ms early, at T+1..3).
     if (kind !== "reject") {
-      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, errAdjMs: errAdj, corrMs: E.corr, lateMs: best.late || 0, oDriftMs: Math.round(E.origin - shotO(best)) });
+      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, corrMs: E.corr });
       return;
     }
-    // Calibration gate (28/09): a late dispatch lands late and reads as
-    // landing error - one-sided, it biased corr up and inflated sigma (33 of
-    // 625 rejects; one took corr 13.8 -> 25.9). And a 144 names no request:
-    // when another engine's punch (REACT, GUARD, UNLOCK, RETRY, probes...) or
-    // a tick shot outside this burst cluster could own it, err is not ours.
-    // The reply is still consumed in FIFO order; only learning is gated.
-    if (best.late >= TICK_CAL_MAX_LATE_MS) {
-      E.stats.calSkippedLate++;
-      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, errAdjMs: errAdj, corrMs: E.corr, lateMs: best.late, late: true, oDriftMs: Math.round(E.origin - shotO(best)) });
-      tickBounceRetry(best);
-      return;
-    }
-    let rivals = 0;
-    for (const s of E.shots) {
-      if (s === best || s === best.pair || s.matched || !s.ok || s.sentAt > t) continue;
-      if (Math.abs(t - (shotO(s) + s.n * TICK_MS + s.phase)) > tol) continue;
-      // The rest of best's own burst (same tick, same target, sent right
-      // after) is the same click to the server: not a competing candidate.
-      if (s.targetId === best.targetId && s.n === best.n && Math.abs(s.sentAt - best.sentAt) <= 30) continue;
-      rivals++;
-    }
-    const rtt = rttEstimateMs() + E.corr;
-    for (const r of E.allShots) {
-      if (String(r.reason || "").startsWith("TICK")) continue; // covered above
-      if (Math.abs(t - (r.at + rtt)) > tol) continue;
-      rivals++;
-    }
-    if (rivals > 0) {
-      E.stats.calSkippedAmbiguous++;
-      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, errAdjMs: errAdj, corrMs: E.corr, lateMs: best.late || 0, ambiguous: true, rivals, oDriftMs: Math.round(E.origin - shotO(best)) });
-      tickBounceRetry(best);
-      return;
-    }
-    E.lastErr = Math.round(errAdj);
-    E.errs.push(Math.round(errAdj));
+    E.lastErr = Math.round(err);
+    E.errs.push(Math.round(err));
     while (E.errs.length > 30) E.errs.shift();
-    E.stats.calibrated++;
-    E.auto.sigma = Math.max(2, Math.min(80, 0.92 * E.auto.sigma + 0.08 * 1.2533 * Math.abs(errAdj)));
-    if (state.timing.tick.autoCal && Math.abs(errAdj) < 150) {
+    E.auto.sigma = Math.max(2, Math.min(80, 0.92 * E.auto.sigma + 0.08 * 1.2533 * Math.abs(err)));
+    if (state.timing.tick.autoCal && Math.abs(err) < 150) {
       // Outliers (a lost request, a stall) move corr only a bounded step.
       const lim = 10 + 2.5 * E.auto.sigma;
-      E.corr = Math.max(-150, Math.min(150, E.corr + 0.25 * Math.max(-lim, Math.min(lim, errAdj))));
+      E.corr = Math.max(-150, Math.min(150, E.corr + 0.25 * Math.max(-lim, Math.min(lim, err))));
     }
-    sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, errAdjMs: errAdj, corrMs: E.corr, lateMs: best.late || 0, oDriftMs: Math.round(E.origin - shotO(best)) });
+    sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, corrMs: E.corr });
     tickBounceRetry(best);
   }
 
@@ -3725,7 +3577,7 @@
   //    locks the next 100 ms, so the burst shrinks to 2. No cooldown: the
   //    burst widens to cover the jitter and may start before B.
   // Learned values persist in the game localStorage between sessions.
-  const TICK_AUTO_KEY = "bbhub.tickAuto.v5"; // v5 (02/10): v6_58-60 saved B at -10 (144s read an RTT early); v4 (27/09): B no longer fed with 211 phases (landing + hold); v3 samples were inflated
+  const TICK_AUTO_KEY = "bbhub.tickAuto.v4"; // v4 (27/09): B no longer fed with 211 phases (landing + hold); v3 samples were inflated
   const TICK_AUTO_SAMPLES = 60;
 
   function tickAutoInit() {
@@ -3858,10 +3710,6 @@
     const eff = tickEffective();
     // With no server cooldown an early request costs nothing: the burst may
     // straddle B. Otherwise an early request wastes the next 100 ms.
-    // 04/10 (v6_64): back to the constant floor 10 of v6_44. The 01/10 floor
-    // followed the jitter and a clean session (sigma 2-3) walked Auto down to
-    // T+4 (live 04/10: 111 of 154 first clicks at T+4); T+10 is the aim the
-    // user validated over weeks of play.
     const lo = A.cooldown === "none" ? -Math.max(5, (eff.burst - 1) * eff.gap) : Math.max(TICK_MARGIN_FLOOR, Math.round(A.sigma / 2));
     return [Math.min(lo, TICK_MARGIN_MAX), TICK_MARGIN_MAX];
   }
@@ -4001,13 +3849,6 @@
 
   function tickAutoNewContact(n, ours, rival, id = null) {
     const A = state.tickEngine.auto;
-    // 02/10 (v6_61): reply phases are read on the batch grid, which already
-    // carries the downlink. A 144 is answered on landing and comes back one
-    // downlink later - like the batch - so its grid phase IS its landing (the
-    // reply matcher finds our 144s at the aimed phase +-3 ms live). v6_58
-    // subtracted the RTT again: before-samples fell outside the window and late
-    // 144s (REACT/RETRY, ~T+170) became after-samples at ~T-10, so B sank to its
-    // floor (-10) and Auto aimed at T-3.
     // After our hit the enemy is down, after its hit we are: later 144s say
     // nothing about the switch.
     const firstHit = ours.find((r) => r.kind === "hit") || null;
@@ -4056,7 +3897,7 @@
     const hits = ours.filter((r) => r.kind === "hit");
     // 27/09: a hit landed before the switch, but its 211 phase adds the hold: no sample.
     if (hits.length) return;
-    for (const r of ours) tickAutoSample(r.p, true); // grid phase = landing (see tickAutoNewContact)
+    for (const r of ours) tickAutoSample(r.p, true);
   }
 
   // Landing phase of the click aimed at tick n that drew no 144 and whose hit
@@ -4134,7 +3975,6 @@
 
   function tickAutoSummary() {
     const A = state.tickEngine.auto;
-    const st = state.tickEngine.stats;
     const eff = tickEffective();
     const recent = A.races.slice(-20);
     const rival = A.rival.slice().sort((a, b) => a - b);
@@ -4149,10 +3989,6 @@
       marginMs: Math.round(A.margin),
       sigmaMs: Math.round(A.sigma),
       corrMs: Math.round(state.tickEngine.corr),
-      calibrated: st.calibrated,
-      calSkippedLate: st.calSkippedLate,
-      calSkippedAmbiguous: st.calSkippedAmbiguous,
-      hitsUnmatched: st.hitsUnmatched,
       cooldown: A.cooldown,
       races: A.wins + A.rescued + A.early + A.late,
       wins: A.wins + A.rescued,
@@ -4327,11 +4163,7 @@
   // The best threat at the landing (threatPick); if nobody can be in contact,
   // the enemy closest to us within 2 tiles.
   function exitPickTarget(landing) {
-    // 02/10 (v6_62): same bar as the tick engine's blind click. At 0.2 the exit
-    // missed the rival walking in at the unlock and fell back to the closest one:
-    // 7 of 19 coco-exit deaths since 01/10 were an exit click at another id, and
-    // the tick click (often at the killer) left 3 ms later, inside the 100 ms gap.
-    const pick = threatPick(landing, state.timing.tick.single ? TICK_BLIND_MIN_P : 0.2);
+    const pick = threatPick(landing, 0.2);
     if (pick) return pick.id;
     const selfId = inferSelfId();
     const self = ensureActorFromRenderer(selfId);
@@ -4384,7 +4216,6 @@
     const self = acc === selfAccountId();
     if (type > 0) {
       const endAt = t + exitCocoMs(type);
-      cocoThrowConfirmed(acc, t);
       X.cocoByAccount.set(acc, { type, start: t, endAt });
       if (self) {
         X.self = { type, start: t, endAt };
@@ -4662,101 +4493,6 @@
     }
   }
 
-  // ---- Structure probe (30/09) -------------------------------------------------
-  // Reverse the server's 211 parser by firing STRUCTURAL variants of the upper at
-  // players NOT in contact with us (3+ tiles away), exactly like labCooldownProbe:
-  // every accepted request comes back as a harmless 144, a rejected/dropped one
-  // is silent, and nobody is actually punched. This never runs by itself; it is
-  // driven from harness/run_struct_probe.js and does not touch real fights.
-  //
-  // The money hypothesis: the wire packet has no length prefix (177 id .. 176),
-  // so the server may parse SEVERAL 211 frames glued into one WSS message in a
-  // single pass, before the 100 ms gap updates. If `glued2` gets 2 replies while
-  // `base` gets 1, that is a candidate to land two held punches from one gap.
-  // Variants:
-  //   base        one 211[id]                         -> expect 1 reply (sanity)
-  //   glued2      two 211[id] frames in ONE message   -> 2 replies = multi-parse
-  //   glued3      three 211[id] frames in ONE message
-  //   twomsg      two 211[id] as two messages, 0 ms   -> control for glued2
-  //   extra_param 211[id, "1"]                         -> 144 = lax parse, silent = strict
-  //   type1       new P(211, 1)[id]                    -> routed elsewhere?
-  //   two_ids     211[idA, idB] one frame (2 targets)  -> does one frame carry two?
-  function structFrameString(P, id, { type = 0, sub = 0, params } = {}) {
-    const pk = type > 0 ? (sub > 0 ? new P(211, type, sub) : new P(211, type)) : new P(211);
-    const list = params || [id];
-    for (const p of list) pk.appendParameter(p);
-    return pk.toString();
-  }
-
-  async function labStructProbe(options = {}) {
-    if (state.lab.running) return { error: "busy" };
-    const P = state.providers.packet?.exported;
-    const socket = providerInstance(state.providers.socket);
-    if (!P || !socket || typeof socket.sendServerMessage !== "function") return { error: "no_socket" };
-    const rounds = Math.max(1, Math.min(20, Number(options.rounds) || 6));
-    const gapMs = Math.max(160, Math.min(600, Number(options.gapMs) || 220)); // > server gap, so no cooldown bleed
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const sendRaw = (str) => socket.sendServerMessage({ id: 211, toString: () => str });
-    const variants = ["base", "glued2", "glued3", "twomsg", "extra_param", "type1", "two_ids"];
-    // clean trials only (not locked, not in real contact) feed the verdict; the
-    // rest are kept apart so a session where the user is being hunted still
-    // produces a readable table. per = raw per-trial reply counts.
-    const acc = Object.fromEntries(variants.map((v) => [v, { trials: 0, clean: 0, sent: 0, r144: 0, r211: 0, cleanR144: 0, cleanR211: 0, max1msg: 0, per: [] }]));
-    state.lab.running = true;
-    let aborted = "";
-    const selfId0 = inferSelfId();
-    const nearContact = () => {
-      const me = ensureActorFromRenderer(selfId0);
-      if (!me) return true;
-      for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
-        const id = asId(rawId);
-        if (id == null || id === selfId0) continue;
-        const a = ensureActorFromRenderer(id);
-        if (a && Math.max(Math.abs(a.toX - me.toX), Math.abs(a.toY - me.toY)) <= 1) return true;
-      }
-      return false;
-    };
-    try {
-      for (let r = 0; r < rounds; r++) {
-        for (const v of variants) {
-          const targets = labProbeTargets();
-          if (targets.length < (v === "two_ids" ? 2 : 1)) { aborted = "need_targets_3_tiles_away"; continue; }
-          const id = targets[0], id2 = targets[1] ?? targets[0];
-          const one = structFrameString(P, id);
-          let sends; // each element is one WSS message (a string)
-          if (v === "base") sends = [one];
-          else if (v === "glued2") sends = [one + one];
-          else if (v === "glued3") sends = [one + one + one];
-          else if (v === "twomsg") sends = [one, one];
-          else if (v === "extra_param") sends = [structFrameString(P, id, { params: [id, "1"] })];
-          else if (v === "type1") sends = [structFrameString(P, id, { type: 1 })];
-          else if (v === "two_ids") sends = [structFrameString(P, id, { params: [id, id2] })];
-          const dirty = state.tickEngine.selfOut || selfLocked(now()) || nearContact();
-          state.lab.replies = [];
-          const start = now();
-          for (const s of sends) { try { sendRaw(s); } catch {} }
-          await sleep(900);
-          const replies = state.lab.replies.filter((x) => x.t >= start);
-          const r144 = replies.filter((x) => x.id === 144).length;
-          const r211 = replies.filter((x) => x.id === 211).length;
-          const a = acc[v];
-          a.trials++;
-          a.sent += sends.length;
-          a.r144 += r144;
-          a.r211 += r211;
-          if (!dirty) { a.clean++; a.cleanR144 += r144; a.cleanR211 += r211; a.max1msg = Math.max(a.max1msg, Math.round((r144 + r211) / sends.length)); }
-          a.per.push({ d: dirty ? 1 : 0, s: sends.length, r144, r211 });
-          sendDiagnostic("lab_struct", { variant: v, targetId: id, dirty: dirty ? 1 : 0, sends: sends.length, r144, r211 });
-          await sleep(gapMs);
-        }
-      }
-      return { rounds, gapMs, aborted, variants: acc };
-    } finally {
-      state.lab.running = false;
-      state.lab.replies = [];
-    }
-  }
-
   function tickHubSummary() {
     const E = state.tickEngine;
     return {
@@ -4869,68 +4605,8 @@
     }
   }
 
-  // Early inbound stamps (01/10): the client queues worker frames and drains
-  // them on requestAnimationFrame - the full tap sees each frame up to ~16 ms
-  // after the socket worker decrypted it (250 ms when the tab is hidden). The
-  // grid origin and the reply matcher want the true arrival time; the full
-  // state tap stays where it is (renderer consistency). Worker shapes:
-  // {type:"received", bytes: ArrayBuffer} / {type:"received-batch", packets}.
-  const earlyStamps = new Map(); // opcode -> FIFO of worker-arrival times
-  let pendingRoundStartAt = 0;
-  function earlyInboundTap(data) {
-    if (!data || typeof data !== "object") return;
-    let frames = null;
-    if (data.type === "received" && data.bytes) frames = [data.bytes];
-    else if (data.type === "received-batch" && Array.isArray(data.packets)) frames = data.packets;
-    if (!frames) return;
-    const t = now();
-    let sawStep = false;
-    for (const bytes of frames) {
-      let pkt = null;
-      try { pkt = parsePacket(bytes); } catch {}
-      if (!pkt) continue;
-      if (pkt.id === 182) { sawStep = true; continue; }
-      if (pkt.id === 144 || pkt.id === 211) {
-        let q = earlyStamps.get(pkt.id);
-        if (!q) { q = []; earlyStamps.set(pkt.id, q); }
-        q.push(t);
-        if (q.length > 24) q.shift();
-      }
-    }
-    if (sawStep) tickNoteBatch(t);
-  }
-
-  function shiftEarlyStamp(id) {
-    const q = earlyStamps.get(id);
-    if (!q || !q.length) return null;
-    const t = q.shift();
-    return Number.isFinite(t) ? t : null;
-  }
-
-  function hookSocketWorkerEarly(instance, attempt = 0) {
-    try {
-      const worker = instance && instance.socketWorker;
-      if (!worker || worker.__bbEarlyTap) return true;
-      const original = worker.onmessage;
-      if (typeof original !== "function") return false;
-      worker.__bbEarlyTap = true;
-      worker.onmessage = function (ev) {
-        try { earlyInboundTap(ev && ev.data); } catch {}
-        return original.call(this, ev);
-      };
-      return true;
-    } catch {}
-    if (attempt < 4) setTimeout(() => hookSocketWorkerEarly(instance, attempt + 1), 2000);
-    return false;
-  }
-
   function onPacket(packet, direction) {
     if (!packet) return;
-    if (state.rawTap.on) {
-      const r = state.rawTap.ring;
-      r.push({ t: Math.round(now()), dir: direction, id: packet.id | 0, type: packet.type | 0, sub: packet.subType | 0, fields: Array.isArray(packet.fields) ? packet.fields.slice(0, 12) : [] });
-      if (r.length > state.rawTap.max) r.splice(0, r.length - state.rawTap.max);
-    }
     if (state.duel.on) duelRecord(packet, direction);
     state.packetBus.lastOpcode = packet.id | 0;
     state.packetBus.lastDir = direction;
@@ -4939,7 +4615,7 @@
     else state.packetBus.out++;
     sendPacketEvent(direction, packet);
 
-    if (direction === "out" && packet.id === 149) cocoThrowPending(packet.fields?.[1]); // budget only when its 184 confirms
+    if (direction === "out" && packet.id === 149) state.cocoGuard.used++; // every coco of ours counts (3 per round)
     if (direction === "out" && packet.id === 211) {
       state.outboundUpperSeq++;
       state.stats.fires++;
@@ -4980,37 +4656,9 @@
 
     if (direction === "in" && packet.id === 160 && packet.type === 123) autoRingOnStatus(packet.fields);
     // Room leave / pop — stop combat pumps so lobby doesn't keep spinning.
-    // 01/10: the round-END gong (160/126 one ms after 160/130 [1,0], before the
-    // winner) used to arm a wasted unlock click ~5 s before the real next gong.
-    // The start gong is the one followed by 160/130 [N, 300]; the end gong by
-    // 160/129. softReset stays for both (state hygiene); roundStartNote waits
-    // for the 300 confirmation (or a 250 ms fallback).
-    if (packet.id === 160 && packet.type === 126) {
-      softResetCombat("room_126");
-      if (direction === "in") {
-        pendingRoundStartAt = now();
-        setTimeout(() => {
-          if (!pendingRoundStartAt) return;
-          roundStartNote(pendingRoundStartAt);
-          pendingRoundStartAt = 0;
-        }, 250);
-      }
-      return;
-    }
-    if (packet.id === 160 && packet.type === 125) {
-      softResetCombat("room_125");
-      return;
-    }
-    if (packet.id === 160 && packet.type === 130) {
-      if (pendingRoundStartAt && String((packet.fields || [])[1] ?? "") === "300") {
-        roundStartNote(pendingRoundStartAt);
-        pendingRoundStartAt = 0;
-      }
-      return;
-    }
-    if (packet.id === 160 && packet.type === 129) {
-      pendingRoundStartAt = 0; // end gong: the round is over, not starting
-      if (direction === "in") state.landingEliminated = false;
+    if (packet.id === 160 && (packet.type === 126 || packet.type === 125)) {
+      softResetCombat(`room_${packet.type}`);
+      if (direction === "in" && packet.type === 126) roundStartNote(now());
       return;
     }
 
@@ -5055,15 +4703,12 @@
         onMoveStep(movedId, x, y, dur, orient, direction, contFlag);
         reactSchedule();
         reachProbeSchedule();
-        cocoSelfOnStep(movedId);
-        tickPreflightSchedule();
       }
       return;
     }
 
     if (packet.id === 184 && packet.type === 120 && direction === "in") {
       exitNoteCoco(now(), packet.fields || []);
-      tickPreflightInvalidate();
       return;
     }
 
@@ -5076,13 +4721,12 @@
         noteRoster(defender);
         sendResolveEvent(attacker, defender);
         landingAdaptOnResolve(attacker);
-        const t = shiftEarlyStamp(211) ?? now();
+        const t = now();
         const selfId = inferSelfId();
         if (state.lab.running && attacker === selfId) state.lab.replies.push({ t, id: 211 });
         state.tickEngine.down.set(defender, t + 2500);
         state.tickEngine.out.add(defender);
         hitLockNote(attacker, t, selfId);
-        tickPreflightInvalidate();
         if (defender === selfId) state.tickEngine.selfOut = true;
         tickAutoNoteHit(t, attacker, defender, selfId);
         if (attacker === selfId) silentAnswered();
@@ -5096,12 +4740,11 @@
     }
 
     if (packet.id === 144) {
-      const t = shiftEarlyStamp(144) ?? now();
       silentAnswered();
       state.stats.rejects++;
-      if (state.lab.running) state.lab.replies.push({ t, id: 144 });
-      exitNoteReply(t, "reject", -1);
-      tickOnServerReply(t, "reject");
+      if (state.lab.running) state.lab.replies.push({ t: now(), id: 144 });
+      exitNoteReply(now(), "reject", -1);
+      tickOnServerReply(now(), "reject");
       landingAdaptOnReject();
       return;
     }
@@ -5180,7 +4823,6 @@
 
   function hookSocket(provider) {
     const owner = provider.exported && provider.exported.prototype;
-    if (provider.instance) hookSocketWorkerEarly(provider.instance);
     safeWrap(owner, "sendServerMessage", "__bbFlashSendHook", (original) =>
       function hookedSend(packet) {
         try {
@@ -5465,12 +5107,6 @@
         if ("repeatMs" in msg) state.tickAdv.repeatMs = Number(msg.repeatMs) > 0 ? clamp(Number(msg.repeatMs), 100, 400) : 0;
         sendConfig();
         break;
-      case "free_fire_config":
-        // EXPERIMENTAL: disparo libre del tick (ignora el espaciado interno de ~100 ms).
-        if ("enabled" in msg) state.freeFire.enabled = Boolean(msg.enabled);
-        if ("gapMs" in msg) state.freeFire.gapMs = clamp(Number(msg.gapMs) || 25, 4, 200);
-        sendConfig();
-        break;
       case "requeue_hotkey_config":
         state.autoRing.hotkey = typeof msg.code === "string" ? msg.code.slice(0, 32) : "";
         if (state.autoRing.hotkey) requeueKeyInstall();
@@ -5499,25 +5135,6 @@
         if ("enabled" in msg) state.cocoGuard.enabled = Boolean(msg.enabled);
         if ("leadMs" in msg) state.cocoGuard.leadMs = clamp(Number(msg.leadMs) || 0, 50, 2000);
         if ("max" in msg) state.cocoGuard.max = clamp(Number(msg.max) || 0, 0, 3);
-        if ("selfMode" in msg) state.cocoGuard.selfMode = msg.selfMode === "auto" ? "auto" : "off";
-        break;
-      case "coco_self":
-        // Manual self-coco from the Hub (the 3-per-round budget still applies).
-        if (state.tickEngine.selfOut || state.cocoGuard.used >= state.cocoGuard.max) {
-          sendDiagnostic("coco_self", { why: "manual", used: state.cocoGuard.used, ok: false, whyBlocked: state.tickEngine.selfOut ? "eliminado" : "sin_cocos" });
-          break;
-        }
-        throwSelfCoco("manual");
-        break;
-      case "coco_self_key_config":
-        state.cocoGuard.selfKey = typeof msg.code === "string" ? msg.code.slice(0, 32) : "";
-        if (state.cocoGuard.selfKey) cocoSelfKeyInstall();
-        sendConfig();
-        break;
-      case "no_throttle_config":
-        state.noThrottle.enabled = Boolean(msg.enabled);
-        flagSave(NO_THROTTLE_KEY, state.noThrottle.enabled);
-        noThrottleInstall();
         break;
       case "tick_burst_config":
         if (msg.ab) { state.burstAB = true; break; }
@@ -5624,26 +5241,6 @@
 
   const SILENT_GAP_MS = 130; // server per-player gap (~100 ms) + jitter
   const RING_MUTE_MS = 1800; // 3 ticks: in the Ring nobody is protected for long
-  // ---- No local 100 ms guard (30/09) ----------------------------------------------
-  // upperRequest: if (now - lastUpperAt < 100) return. With the guard off, lastUpperAt
-  // always reads as long ago, so no punch is dropped in the client (the server's own
-  // ~100 ms gap after a processed request still applies).
-  const NO_THROTTLE_KEY = "bb5.noThrottle";
-  function noThrottleInstall() {
-    const upper = providerInstance(state.providers.upper);
-    if (!upper || typeof upper !== "object" || upper.__bbNoThrottle) return;
-    let stored = Number(upper.lastUpperAt) || 0;
-    try {
-      Object.defineProperty(upper, "lastUpperAt", {
-        configurable: true,
-        get() { return state.noThrottle.enabled ? -1e9 : stored; },
-        set(v) { stored = v; if (state.noThrottle.enabled) state.noThrottle.skipped++; }
-      });
-      Object.defineProperty(upper, "__bbNoThrottle", { value: true });
-      state.noThrottle.installed = true;
-    } catch {}
-  }
-
   function silentAnswered() {
     const E = state.tickEngine;
     E.silentLastReplyAt = now();
@@ -5689,7 +5286,6 @@
   function roundStartNote(t) {
     const E = state.tickEngine;
     state.cocoGuard.used = 0;
-    state.cocoGuard.thrown = [];
     state.reachProbe.count = 0;
     if (state.burstAB) {
       state.burstRound = (state.burstRound | 0) + 1;
@@ -5777,11 +5373,7 @@
         window: "UNLOCK",
         fires: [
           { index: 0, dueAt: at, delayMs: Math.max(0, at - t - SPIN_EARLY_MS) },
-          { index: 1, dueAt: at + UNLOCK_RETRY_MS, delayMs: Math.max(0, at + UNLOCK_RETRY_MS - t - SPIN_EARLY_MS) },
-          // 01/10 live: both rungs landed inside the true lock edge (frames
-          // shift with the one-way) and were silenced; a third rung at +210
-          // clears the second one's gap the same way the second clears the first.
-          { index: 2, dueAt: at + 2 * UNLOCK_RETRY_MS, delayMs: Math.max(0, at + 2 * UNLOCK_RETRY_MS - t - SPIN_EARLY_MS) }
+          { index: 1, dueAt: at + UNLOCK_RETRY_MS, delayMs: Math.max(0, at + UNLOCK_RETRY_MS - t - SPIN_EARLY_MS) }
         ]
       });
     } catch {}
@@ -5791,9 +5383,8 @@
     const E = state.tickEngine;
     if (`UNLOCK:${Math.round(E.unlock.end)}` !== String(msg.planId || "") || E.unlock.end !== E.selfLockEnd) return;
     if (!tickEnabled() || E.selfOut || msg.seq !== state.seq) return;
-    const step = msg.index | 0;
-    const retry = step > 0;
-    const landing = E.selfLockEnd + UNLOCK_MARGIN_MS + step * UNLOCK_RETRY_MS;
+    const retry = (msg.index | 0) === 1;
+    const landing = E.selfLockEnd + UNLOCK_MARGIN_MS + (retry ? UNLOCK_RETRY_MS : 0);
     if (exitBlocksLanding(landing)) return;
     // Whoever stands next to us now waited through our animation to ambush us
     // (25/09 live: #0 stepped next to us 0.7 s before our unlock and hit at
@@ -5856,11 +5447,6 @@
     // In our own coco selfOut is set by design; for the upper guard it means we are out.
     if (!G.enabled || !tickEnabled() || (kind !== "COCO" && E.selfOut)) return;
     if (sceneRenderer()?.spaceModel?.name !== "mGame2") return;
-    // A self-coco took this window: we are immune and can not punch anyway.
-    if (G.selfEnd && Math.abs(end - G.selfEnd) < 700) {
-      sendDiagnostic("coco_guard", { kind, targetId: -1, why: "self_coco", used: G.used, lockEnd: Math.round(end) });
-      return;
-    }
     if (G.used >= G.max) { sendDiagnostic("coco_guard", { kind, targetId: -1, why: "sin_cocos", used: G.used, lockEnd: Math.round(end) }); return; }
     const landing = end - G.leadMs;
     const pick = unlockAmbusher(landing);
@@ -5892,124 +5478,6 @@
       if (!best || since > best.since) best = { id, score: 1, since, face: faceSide(me.toX, me.toY, a.toX, a.toY) };
     }
     return best;
-  }
-
-  // ---- Self coco (01/10) ------------------------------------------------------
-  // The guard freezes the waiter before our unlock, but it decides once, needs
-  // budget, and its throw must be processed before the rival's punch. When none
-  // of that holds - the rival stepped adjacent after the guard's dispatch - the
-  // coco goes to OURSELVES instead: nobody can punch us for ~7 s (we can not
-  // punch either, so the unlock click is skipped), and when our coco ends the
-  // exit machinery fires at the learned phase at whoever waited through it.
-  function cocoSelfAdjacentThreat(at) {
-    const E = state.tickEngine;
-    const selfId = inferSelfId();
-    const me = ensureActorFromRenderer(selfId);
-    if (!me) return null;
-    for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
-      const id = asId(rawId);
-      if (id == null || id === selfId || E.out.has(id) || isMuted(id) || isAlly(id) || isStale(id)) continue;
-      const a = ensureActorFromRenderer(id);
-      if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
-      if (rivalLocked(id, at)) continue; // free only after our coco: runlock covers it
-      return { id, face: faceSide(me.toX, me.toY, a.toX, a.toY) };
-    }
-    return null;
-  }
-
-  function throwSelfCoco(why) {
-    const G = state.cocoGuard;
-    // Already stunned: the server ignores the request (01/10 live: three throws
-    // in a row, one 184) and the request would burn budget for nothing.
-    if (exitBlocksLanding(now() + rttEstimateMs() + state.tickEngine.corr)) {
-      sendDiagnostic("coco_self", { why, used: G.used, ok: false, whyBlocked: "en_coco" });
-      return false;
-    }
-    const upper = providerInstance(state.providers.upper);
-    if (!upper || typeof upper.cocoRequest !== "function") return false;
-    const selfId = inferSelfId();
-    if (selfId == null || selfId < 0) return false;
-    try {
-      upper.cocoRequest(selfId);
-    } catch {
-      return false;
-    }
-    // The outbound-149 tap counts it against the 3-per-round budget; the 184
-    // that comes back sets exitMode.self and re-arms the exit at its end.
-    G.selfEnd = state.tickEngine.selfLockEnd;
-    sendDiagnostic("coco_self", { why, used: G.used, lockEnd: Math.round(state.tickEngine.selfLockEnd || 0) });
-    return true;
-  }
-
-  // Called on every inbound user step. The ambusher of our unlock usually
-  // enters at the last tick before the lock ends (01/10 live: end-240), after
-  // the guard already made its decision - this is the second and last chance.
-  function cocoSelfOnStep(movedId) {
-    const E = state.tickEngine;
-    const G = state.cocoGuard;
-    if (G.selfMode !== "auto" || !tickEnabled() || E.selfOut || movedId === inferSelfId()) return;
-    if (sceneRenderer()?.spaceModel?.name !== "mGame2") return;
-    // Stunned: nothing to cover, and a throw would be ignored anyway.
-    if (exitBlocksLanding(now() + rttEstimateMs() + state.tickEngine.corr)) return;
-    const end = E.selfLockEnd;
-    if (!end || G.selfEnd === end) return; // already covered this lock
-    const left = end - now();
-    if (left <= 0 || left > 600) return;
-    const threat = cocoSelfAdjacentThreat(end + 900);
-    if (!threat) return;
-    // Before the guard's dispatch it decides with the same or better info.
-    const guardFiresAt = end - G.leadMs - rttEstimateMs() - E.corr;
-    if (now() < guardFiresAt) return;
-    if (G.used >= G.max) return; // the guard and we share the 3-coco budget
-    // The guard already went: if it covered this rival, its pending coco does.
-    if ((G.pending.get(threat.id) || 0) > end + 900) return;
-    throwSelfCoco("ambush");
-  }
-
-  // Hotkey (01/10): the owner throws their own coco from inside the game,
-  // without reaching for the Hub. Same guards as the manual Hub button.
-  function cocoSelfOnKey(event) {
-    const G = state.cocoGuard;
-    if (!G.selfKey || event.code !== G.selfKey || event.repeat) return;
-    const el = event.target;
-    const tag = String(el?.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || el?.isContentEditable) return; // typing in the chat
-    event.preventDefault();
-    event.stopPropagation();
-    if (state.tickEngine.selfOut || G.used >= G.max) {
-      sendDiagnostic("coco_self", { why: "hotkey", used: G.used, ok: false, whyBlocked: state.tickEngine.selfOut ? "eliminado" : "sin_cocos" });
-      return;
-    }
-    throwSelfCoco("hotkey");
-  }
-
-  function cocoSelfKeyInstall() {
-    if (state.cocoGuard.selfKeyInstalled || typeof window.addEventListener !== "function") return;
-    state.cocoGuard.selfKeyInstalled = true;
-    window.addEventListener("keydown", cocoSelfOnKey, true);
-  }
-
-  // Budget accounting (01/10): a 149 that leaves says nothing - the server
-  // silently ignores throws from a stunned player (and from one without cocos).
-  // A throw only counts against the 3-per-round budget when its 184 comes back:
-  // each confirmed start stuns exactly the target it was thrown at.
-  function cocoThrowPending(targetId) {
-    const G = state.cocoGuard;
-    const id = asId(targetId);
-    let acc = -1;
-    if (id != null && id === inferSelfId()) acc = Number(selfAccountId());
-    else if (id != null) acc = Number(sceneRenderer()?.avatars?.get?.(id)?.avatarInfo?.id);
-    G.thrown.push({ t: now(), acc: Number.isFinite(acc) ? acc : -1 });
-    while (G.thrown.length > 8) G.thrown.shift();
-  }
-
-  function cocoThrowConfirmed(acc, t) {
-    const G = state.cocoGuard;
-    const i = G.thrown.findIndex((p) => p.acc === acc && t - p.t < 3000);
-    if (i < 0) return; // someone else's throw (or older than the window)
-    G.thrown.splice(i, 1);
-    G.used++;
-    sendDiagnostic("coco_used", { used: G.used, acc });
   }
 
   // ---- Rival unlock ------------------------------------------------------------
@@ -6388,12 +5856,10 @@
   function sendTick() {
     const t = now();
     refreshOptionalProviders();
-    noThrottleInstall();
     if (!state.persistLoaded) {
       state.persistLoaded = true;
       allyLoad();
       flagLoad(AUTO_RING_KEY, state.autoRing);
-      try { if (window.localStorage?.getItem(NO_THROTTLE_KEY) === "0") state.noThrottle.enabled = false; } catch {}
       flagLoad(RENDER_OFF_KEY, state.renderOff);
     }
     autoRingPump(t);
@@ -6532,9 +5998,7 @@
       allies: { accounts: [...state.allies.accounts], names: [...state.allies.names], blocked: state.allies.blocked },
       autoRing: { enabled: state.autoRing.enabled, hotkey: state.autoRing.hotkey, requeues: state.autoRing.requeues, oneShot: state.autoRing.oneShotUntil > now(), joins: state.autoRing.joins, leaves: state.autoRing.leaves, lobbyTrips: state.autoRing.lobbyTrips, room: roomKind(), lastStatus: state.autoRing.lastStatus, provider: Boolean(providerInstance(state.providers.game)) },
       lowPing: { mode: state.lowPing.mode, active: lowPingActive(), skipped: state.lowPing.skipped },
-      noThrottle: { enabled: state.noThrottle.enabled, installed: state.noThrottle.installed, sends: state.noThrottle.skipped },
       tickAdv: { sweep: state.tickAdv.sweep, repeatMs: state.tickAdv.repeatMs, repeats: state.tickAdv.repeats, burst: state.tickBurst },
-      freeFire: { enabled: state.freeFire.enabled, gapMs: state.freeFire.gapMs },
       stale: { remembered: staleCount, listed: (() => { let n = 0; const av = sceneRenderer()?.avatars; if (av instanceof Map) for (const a of av.values()) if (isStaleAvatar(a)) n++; return n; })(), outOfRing: (() => { let n = 0; const av = sceneRenderer()?.avatars; if (av instanceof Map) for (const k of av.keys()) if (notRingSlot(asId(k))) n++; return n; })() },
       emotes: { enabled: state.emotes.enabled, sent: state.emotes.sent, skipped: state.emotes.skipped, last: state.emotes.last, provider: Boolean(providerInstance(state.providers.action)) },
       renderOff: { enabled: state.renderOff.enabled, patched: state.renderOff.patched, provider: Boolean(providerInstance(state.providers.pixi)?.app) },
@@ -6661,8 +6125,6 @@
             ok = moveTo(action.x, action.y);
           } else if (action.kind === "raw") {
             ok = duelSendRaw(action.id, action.type, action.params);
-          } else if (action.kind === "rawbytes") {
-            ok = duelSendBytes(action.bytes, action.id || 211);
           } else {
             const u = upper();
             if (action.face > 0 && u && typeof u.rotationRequest === "function") u.rotationRequest(action.face);
@@ -6697,14 +6159,6 @@
     }
   }
 
-  // Send an exact byte string (latin1) as one WSS message — hand-crafted,
-  // possibly malformed frames the client class would never build (duel exploit).
-  function duelSendBytes(latin1, idForLog = 211) {
-    const socket = providerInstance(state.providers.socket);
-    if (!socket || typeof latin1 !== "string") return false;
-    try { socket.sendServerMessage({ id: idForLog | 0, toString: () => latin1 }); return true; } catch { return false; }
-  }
-
   function duelJoinZone(zoneId) {
     const nav = providerInstance(state.providers.nav);
     if (!nav || typeof nav.islandRequest !== "function") return false;
@@ -6728,35 +6182,7 @@
     fire: (targetId) => firePunch(targetId, "manual"),
     lab: {
       cooldownProbe: (options) => labCooldownProbe(options),
-      structProbe: (options) => labStructProbe(options),
       targets: () => labProbeTargets()
-    },
-    // Server-REPL for the shell (drive via CDP). Turns the authenticated client
-    // into a raw packet pipe: send any opcode, then read every reply from the tap.
-    debug: {
-      tap(on = true) { state.rawTap.on = Boolean(on); if (on) state.rawTap.ring = []; return state.rawTap.on; },
-      clear() { state.rawTap.ring = []; return true; },
-      capture(sinceMs = 1500) { const cut = now() - sinceMs; return state.rawTap.ring.filter((x) => x.t >= cut); },
-      self() { return { id: inferSelfId(), acc: selfAccountId(), rtt: Math.round(rttEstimateMs()), room: sceneRenderer()?.spaceModel?.name || "" }; },
-      // Send one raw packet built with the game's own class. params is an array.
-      sendRaw({ op, type = 0, sub = 0, params = [] } = {}) {
-        const P = state.providers.packet?.exported;
-        const socket = providerInstance(state.providers.socket);
-        if (!P || !socket) return { error: "no_socket" };
-        const pk = type > 0 ? (sub > 0 ? new P(op, type, sub) : new P(op, type)) : new P(op);
-        for (const p of params) pk.appendParameter(typeof p === "number" ? p : String(p));
-        try { socket.sendServerMessage(pk); } catch (e) { return { error: String(e && e.message || e) }; }
-        return { sent: true };
-      },
-      // Send an exact byte string (latin1) as one WSS message, id for logging only.
-      sendBytes(latin1, idForLog = 0) {
-        const socket = providerInstance(state.providers.socket);
-        if (!socket) return { error: "no_socket" };
-        try { socket.sendServerMessage({ id: idForLog | 0, toString: () => latin1 }); } catch (e) { return { error: String(e && e.message || e) }; }
-        return { sent: true, bytes: latin1.length };
-      },
-      // Build one 211[id] frame string (latin1) so the shell can glue/craft.
-      frame211(id, opts) { const P = state.providers.packet?.exported; return P ? structFrameString(P, id, opts) : null; }
     },
     move: (x, y) => moveTo(x, y),
     requeue: () => requeueNow(),
