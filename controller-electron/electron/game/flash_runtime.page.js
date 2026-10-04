@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "02102026_html5_hub_v6_62_exit_pick";
+  const BRIDGE_BUILD = "04102026_html5_hub_v6_63_react_after_blind";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -282,6 +282,7 @@
       bursts: [],
       auto: tickAutoInit(),
       tickTargets: new Map(), // tick n -> enemy our click for that tick went to
+      tickBlind: new Map(), // tick n -> true when that click left blind (before batch n was known)
       tickTargets2: new Map(), // tick n -> runner-up of a near tie (second click)
       selfWalkAt: 0,
       walkReqs: [], // our walk requests the server keeps (see WALK_THROTTLE_MS)
@@ -3013,6 +3014,7 @@
     E.auto.lastRaceN = null;
     E.tickTargets.clear();
     E.tickTargets2.clear();
+    E.tickBlind.clear();
     E.out.clear();
     E.outGone.clear();
     E.selfOut = false;
@@ -3278,7 +3280,14 @@
     if (!pick) return;
     const E = state.tickEngine;
     // This tick's click already went to it and lands after the switch.
-    if (E.lastBatchTick != null && (E.tickTargets.get(E.lastBatchTick) === pick.id || E.tickTargets2.get(E.lastBatchTick) === pick.id)) return;
+    // 04/10 (v6_63): only when that click knew the contact. A blind one was a
+    // guess that can land without registering (live 04/10: blind click at the
+    // rival 161 ms before it walked in, no 144, reaction skipped, it hit us at
+    // T+253; the reaction lands ~T+170). If the guess did hit we are already in
+    // our animation and this click is ignored; if it bounced, its 100 ms gap
+    // ended before this one lands.
+    const n = E.lastBatchTick;
+    if (n != null && ((E.tickTargets.get(n) === pick.id && !E.tickBlind.get(n)) || E.tickTargets2.get(n) === pick.id)) return;
     const key = `${pick.id}:${Math.round(E.lastBatchAt)}`;
     if (state.react.lastKey === key) return; // one reaction per rival and batch
     state.react.lastKey = key;
@@ -3527,6 +3536,8 @@
     } else if (ok) {
       E.tickTargets.set(plan.n, pick.id);
       while (E.tickTargets.size > 8) E.tickTargets.delete(E.tickTargets.keys().next().value);
+      E.tickBlind.set(plan.n, !pick.reactive);
+      while (E.tickBlind.size > 8) E.tickBlind.delete(E.tickBlind.keys().next().value);
     }
     const burst = inBurst ? E.bursts.findLast((x) => x.n === plan.n) : null;
     if (burst && ok) burst.sent++;
