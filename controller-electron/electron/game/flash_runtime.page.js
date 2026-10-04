@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "04102026_html5_hub_v6_63_react_after_blind";
+  const BRIDGE_BUILD = "04102026_html5_hub_v6_64_floor10";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -3858,12 +3858,11 @@
     const eff = tickEffective();
     // With no server cooldown an early request costs nothing: the burst may
     // straddle B. Otherwise an early request wastes the next 100 ms.
-    // 01/10: the floor follows the measured jitter instead of the constant 10.
-    // With the decision off the fire path, a clean session (sigma ~4) may aim
-    // T+5; a messy one keeps today's 10 (26/09: sigma 8 bounced aims at T+6/7).
-    // The absolute floor 4 keeps the aim inside the acceptance window.
-    const lo = A.cooldown === "none" ? -Math.max(5, (eff.burst - 1) * eff.gap)
-      : Math.max(4, Math.min(TICK_MARGIN_FLOOR, Math.round(1.25 * A.sigma)), Math.round(A.sigma / 2));
+    // 04/10 (v6_64): back to the constant floor 10 of v6_44. The 01/10 floor
+    // followed the jitter and a clean session (sigma 2-3) walked Auto down to
+    // T+4 (live 04/10: 111 of 154 first clicks at T+4); T+10 is the aim the
+    // user validated over weeks of play.
+    const lo = A.cooldown === "none" ? -Math.max(5, (eff.burst - 1) * eff.gap) : Math.max(TICK_MARGIN_FLOOR, Math.round(A.sigma / 2));
     return [Math.min(lo, TICK_MARGIN_MAX), TICK_MARGIN_MAX];
   }
 
