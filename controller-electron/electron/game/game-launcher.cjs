@@ -24,12 +24,13 @@ const GAME_FRAME_RE = /static\.boombang\.tv\/betahtml5/;
 const RING_SCENE_PATH = path.join(__dirname, "ring_scene.page.js");
 const RUNTIME_PATH = path.join(__dirname, "flash_runtime.page.js");
 const AVATAR_MAX_CHARS = 600000;
-// Our character as the game draws it (#BoomBangFlowerPowerAvatar). Read from
-// outside the runtime, once after connecting and once more a little later
-// (04/10: no periodic work in the game page beyond what the .cmd did). A blob:
-// URL only exists inside the game, so it goes out as a data URL.
+// Read the game's existing portrait; never bake sprites or touch combat state.
+// Retry from the Hub until the asynchronous FlowerPower image is loaded, then
+// stop. A blob URL only exists inside the game, so send its bytes as a data URL.
 const AVATAR_JS = `
-  const src = document.getElementById("BoomBangFlowerPowerAvatar")?.querySelector("img")?.src || "";
+  const image = document.getElementById("BoomBangFlowerPowerAvatar")?.querySelector("img");
+  if (!image?.complete || !image.naturalWidth) return "";
+  const src = image.currentSrc || image.getAttribute("src") || "";
   if (!src.startsWith("blob:")) return src;
   const blob = await (await fetch(src)).blob();
   if (blob.size > 400000) return "";
@@ -93,6 +94,7 @@ class GameLauncher extends EventEmitter {
     this.gameFrame = null;
     this.avatarUrl = "";
     this.avatarTimer = null;
+    this.avatarGeneration = 0;
     this.busy = false;
   }
 
@@ -190,6 +192,7 @@ class GameLauncher extends EventEmitter {
     if (!password || password.length > 256) throw new Error("Escribe tu contraseña de BoomBang.");
     if (!safeStorage.isEncryptionAvailable()) throw new Error("Windows no permite guardar la contraseña cifrada en este equipo.");
     const cipher = safeStorage.encryptString(password).toString("base64");
+    if (this.readAccount()?.username !== username) this.stopAvatarRead();
     fs.mkdirSync(path.dirname(this.accountPath), { recursive: true });
     fs.writeFileSync(this.accountPath, JSON.stringify({ username, password: cipher }), { encoding: "utf8", mode: 0o600 });
     this.log(`Cuenta del juego guardada: ${username}`);
@@ -198,6 +201,7 @@ class GameLauncher extends EventEmitter {
   }
 
   forgetAccount() {
+    this.stopAvatarRead();
     fs.rmSync(this.accountPath, { force: true });
     this.pendingToken = null;
     if (this.state === "twofa") this.setState("idle");
@@ -363,6 +367,7 @@ class GameLauncher extends EventEmitter {
   }
 
   async attach(username, child) {
+    this.stopAvatarRead();
     if (this.resolveHubPort) this.hubPort = await this.resolveHubPort();
     this.setState("launching", "Esperando a BoomBang…");
     await this.waitForCdp(child);
@@ -464,8 +469,7 @@ class GameLauncher extends EventEmitter {
     await this.waitForHubConnection(boot.bridgeBuild);
     this.setState("ready", "Juego conectado.");
     if (this.diagnostics) await this.applyDiagnostics();
-    void this.readAvatar();
-    this.avatarTimer = setTimeout(() => void this.readAvatar(), 15000);
+    this.startAvatarRead();
 
     const closed = () => {
       if (this.state !== "ready") return;
@@ -475,13 +479,38 @@ class GameLauncher extends EventEmitter {
     child?.once("exit", closed);
   }
 
-  async readAvatar() {
-    if (!this.gameFrame) return;
-    const url = await inPage(this.gameFrame, AVATAR_JS).catch(() => "");
-    if (typeof url !== "string" || !/^(https?:|data:image\/)/.test(url) || url.length > AVATAR_MAX_CHARS) return;
-    if (url === this.avatarUrl) return;
+  startAvatarRead() {
+    this.stopAvatarRead();
+    const generation = this.avatarGeneration;
+    const poll = async () => {
+      if (generation !== this.avatarGeneration || !this.gameFrame) return;
+      this.avatarTimer = null;
+      const loaded = await this.readAvatar(generation);
+      if (!loaded && generation === this.avatarGeneration && this.gameFrame) {
+        this.avatarTimer = setTimeout(poll, 5000);
+        this.avatarTimer.unref?.();
+      }
+    };
+    void poll();
+  }
+
+  stopAvatarRead() {
+    clearTimeout(this.avatarTimer);
+    this.avatarTimer = null;
+    this.avatarGeneration++;
+    this.avatarUrl = "";
+  }
+
+  async readAvatar(generation = this.avatarGeneration) {
+    const frame = this.gameFrame;
+    if (!frame) return false;
+    const url = await inPage(frame, AVATAR_JS).catch(() => "");
+    if (generation !== this.avatarGeneration || frame !== this.gameFrame) return false;
+    if (typeof url !== "string" || !/^(https?:|data:image\/)/.test(url) || url.length > AVATAR_MAX_CHARS) return false;
+    if (url === this.avatarUrl) return true;
     this.avatarUrl = url;
     this.emit("change");
+    return true;
   }
 
   async waitForHubConnection(build, timeoutMs = 10000) {
@@ -505,9 +534,8 @@ class GameLauncher extends EventEmitter {
   // closeGame: also kill a client we started (failed launch). On Hub exit the
   // game stays open; it reconnects when the Hub opens again.
   async teardown(closeGame) {
+    this.stopAvatarRead();
     await this.closeRecorder();
-    clearTimeout(this.avatarTimer);
-    this.avatarTimer = null;
     this.gameFrame = null;
     try { this.bridge?.stop(); } catch {}
     this.bridge = null;
@@ -523,9 +551,8 @@ class GameLauncher extends EventEmitter {
   }
 
   stop() {
+    this.stopAvatarRead();
     void this.closeRecorder();
-    clearTimeout(this.avatarTimer);
-    this.avatarTimer = null;
     try { this.bridge?.stop(); } catch {}
     this.bridge = null;
   }
