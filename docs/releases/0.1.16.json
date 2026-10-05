@@ -1,0 +1,42 @@
+{
+  "version": "0.1.16",
+  "channel": "stable",
+  "platform": "Windows x64",
+  "status": "prepared, not published",
+  "installer": "BB Hub Setup 0.1.16.exe",
+  "installerSizeBytes": 126351011,
+  "installerSha256": "ab7e6b743ded52e7b553c65a824ac44f46b87b43588160de8ab048a67db9593c",
+  "zip": "DISTRIBUCION/BB Hub 0.1.16 Windows x64.zip",
+  "zipSha256": "417ec9408984b88ea37fe72a82765f08308a1a95009082e7e3641c06a7eec351",
+  "asarSha256": "ce4c504f915b2e27c5a53317c4b4c5a52bfb1fcfcf1f3d8cc0cde83fa1063d4e",
+  "runtimeBuild": "05102026_html5_hub_v6_62_og_exit_backup",
+  "runtimeSha256Normalized": "b618262da05285ec394fce8cfd5ee9a904e66a30c3603b76aba973cfb9a34ff2",
+  "runtimeBase": "02102026_html5_hub_v6_62_exit_pick (normalized sha256 3fc2dabb06a7fa53fd4ca548230e233a272973e541ad0d85b61cc4d2373b5968)",
+  "changes": {
+    "timingEngineRestoredToV6_62": true,
+    "removedV6_63toV6_73": true,
+    "cocoExitBackupClickInSingleMode": true,
+    "timingTargetPushedToHubOnEachShot": true,
+    "gameRenderersHighPriority": true
+  },
+  "validation": {
+    "historicalRuntimeSuite": "HTML5/harness/test_hub_runtime.js 48 PASS (EXIT single updated for the backup click)",
+    "passedSuites": ["runtime-security", "client-discovery", "port-conflict (source)", "pro-hotkey-updater", "avatar-regression (packaged)"],
+    "notRun": {
+      "timing-*-regression": "test v6_68-v6_73 behaviour that this release removes",
+      "packaged-security / packaged-smoke": "launch the packaged Hub against the live bb-hub profile while the owner was playing"
+    },
+    "installerSigned": false,
+    "installerSignedNote": "Same as previous releases (NotSigned).",
+    "zipContentVerified": true,
+    "liveGameEfficacyValidated": false
+  },
+  "preserved": {
+    "licensesAndCryptlexConfiguration": true,
+    "accountAndSettings": true,
+    "launcherClientDiscoveryAndAvatar": true,
+    "board": true
+  },
+  "publishedToGitHub": false,
+  "publishedToUpdater": false
+}
