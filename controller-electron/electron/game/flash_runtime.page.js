@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "05102026_html5_hub_v6_73_contact_reselect";
+  const BRIDGE_BUILD = "05102026_html5_hub_v6_62_og_restore";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -128,7 +128,7 @@
         // One click per tick at the learned phase (the Hub's only mode).
         single: false,
         // Dense burst on the first shot: burst requests burstGapMs apart, all
-        // after T, all to the engine's chosen threat.
+        // after T, all to the fichado.
         burst: 5,
         burstGapMs: 4
       }
@@ -293,7 +293,6 @@
       out: new Set(),
       outGone: new Set(), // out players that already left the room
       selfOut: false,
-      outAvatars: new Map(), // identity at elimination, scoped to the current room/round
       // Targets the server never answers (no 144, no 211): skipped for a while.
       silentPending: [], // { id, at } engine clicks waiting for a reply
       silentCount: new Map(),
@@ -629,11 +628,6 @@
       return fichado;
     }
     return state.selectedId;
-  }
-
-  // Fichar is only UI/manual input. Automatic combat never consults it.
-  function automaticTimingTargetId(landing = now() + rttEstimateMs() + state.tickEngine.corr) {
-    return threatPick(landing, TICK_BLIND_MIN_P)?.id ?? -1;
   }
 
   function lateralAdjacent(ax, ay, bx, by) {
@@ -1497,6 +1491,7 @@
   }
 
   function notePunch(targetId, reason) {
+    // Report only (Hub "Último disparo de Timing"): no decision reads it.
     if (reason && !["native", "CTRL", "manual"].includes(reason)) {
       state.lastAutomaticPunch = { targetId: targetId | 0, reason, at: Math.round(now()) };
     }
@@ -1517,7 +1512,7 @@
   // server still decides what it accepts.
   function firePunch(targetId, reason, options) {
     let id = asId(targetId);
-    if ((id == null || id < 0) && (reason === "CTRL" || reason === "manual")) id = selectedId();
+    if (id == null || id < 0) id = selectedId();
     if (id == null || id < 0 || id === inferSelfId()) return false;
     if (isAlly(id)) { state.allies.blocked++; return false; }
     const upper = providerInstance(state.providers.upper);
@@ -1526,14 +1521,6 @@
     // Engine shots that would land inside our coco are ignored by the server.
     if (!["CTRL", "manual"].includes(reason) && state.tickEngine.selfOut) {
       state.stats.outHeld = (state.stats.outHeld || 0) + 1;
-      return false;
-    }
-    // A queued repeat/burst/exit may retain a target after a 211 or departure.
-    // Recheck the live user namespace at dispatch, including cached decisions.
-    if (!["CTRL", "manual"].includes(reason) &&
-        (state.tickEngine.out.has(id) || isStale(id) || !sceneRenderer()?.avatars?.has?.(id))) {
-      state.stats.invalidTargetHeld = (state.stats.invalidTargetHeld || 0) + 1;
-      sendDiagnostic("fire_target_blocked", { targetId: id, reason: reason || "", eliminated: state.tickEngine.out.has(id) });
       return false;
     }
     if (!["CTRL", "manual", "EXIT"].includes(reason) && exitBlocksLanding(now() + rttEstimateMs() + state.tickEngine.corr)) {
@@ -1585,7 +1572,7 @@
       const t = now();
       const inGap = t - (E.silentLastClickAt ?? -1e9) < SILENT_GAP_MS || t - (E.silentLastReplyAt ?? -1e9) < SILENT_GAP_MS;
       E.silentLastClickAt = t;
-      if (!inGap && !["CTRL", "manual", "TICK_DUAL", "TICK_SWEEP", "TICK_RETRY", "TICK_REPEAT", "REACH_PROBE", "RETRY"].includes(reason)) {
+      if (!inGap && !["CTRL", "manual", "TICK_DUAL", "TICK_SWEEP", "TICK_REPEAT", "REACH_PROBE", "RETRY"].includes(reason)) {
         E.silentPending.push({ id, at: t });
         while (E.silentPending.length > 20) E.silentPending.shift();
       }
@@ -1919,7 +1906,7 @@
     if (!actor || contFlag !== 0) return;
     const selfId = inferSelfId();
     if (selfId < 0 || movedId === selfId) return;
-    const targetId = automaticTimingTargetId(actor.startAt + actor.stepMs);
+    const targetId = selectedId();
     if (targetId < 0 || targetId !== movedId) return;
     const self = ensureActorFromRenderer(selfId);
     if (!self) return;
@@ -1958,7 +1945,7 @@
       state.landingC.wasContact = false;
       return;
     }
-    const target = automaticTimingTargetId();
+    const target = selectedId();
     if (target < 0 || target === inferSelfId()) {
       state.landingC.wasContact = false;
       return;
@@ -2426,7 +2413,7 @@
       state.contactEdge.wasContact = false;
       return;
     }
-    const target = automaticTimingTargetId();
+    const target = selectedId();
     if (target < 0 || target === inferSelfId()) {
       state.contactEdge.wasContact = false;
       return;
@@ -2452,7 +2439,7 @@
     const timingMove = timingModeActive() && timingSourceMode() === "MOVE_DELAY";
     if (!pulseMove && !timingMove && !state.moveDelay.enabled) return;
     if ((moveDur | 0) < (state.moveDelay.minMoveMs | 0)) return;
-    const target = automaticTimingTargetId(moveStartAt + moveDur);
+    const target = selectedId();
     if (target < 0) return;
     const key = `MD:${Math.round(moveStartAt)}:${target}`;
     if (key === state.moveDelay.lastFireKey) return;
@@ -2631,7 +2618,7 @@
   function scheduleStatePunch(movedId, reason) {
     if (!timingModeActive() || timingSourceMode() !== "STATE") return;
     if (!state.stateCfg.enabled && timingSourceMode() !== "STATE") return;
-    const sel = automaticTimingTargetId();
+    const sel = selectedId();
     if (sel < 0) return;
     const selfId = inferSelfId();
     if (movedId !== sel && movedId !== selfId) {
@@ -2677,7 +2664,7 @@
     let bestDist = 999;
     for (const [rawId] of renderer.avatars) {
       const id = asId(rawId);
-      if (id == null || id === inferSelfId() || state.tickEngine.out.has(id) || isMuted(id) || isAlly(id) || isStale(id)) continue;
+      if (id == null || id === inferSelfId()) continue;
       const actor = ensureActorFromRenderer(id);
       if (!actor) continue;
       if (state.pulse.contactOnly && !lateralAdjacent(self.toX, self.toY, actor.toX, actor.toY)) {
@@ -2693,11 +2680,6 @@
   }
 
   function pulseTargetId() {
-    if (state.pulse.autoTarget) {
-      const auto = pulseNearestLateral();
-      state.pulse.autoTargetId = auto;
-      return auto;
-    }
     if (state.pulse.requireSelected || !state.pulse.autoTarget) {
       const sel = selectedId();
       if (sel >= 0) {
@@ -3038,7 +3020,6 @@
     E.tickTargets2.clear();
     E.out.clear();
     E.outGone.clear();
-    E.outAvatars.clear();
     E.selfOut = false;
     E.silentPending = [];
     E.silentCount.clear();
@@ -3268,7 +3249,7 @@
 
   // Lateral enemies now; `fresh` = not lateral at the previous check (the
   // contact is new with this batch). A standing neighbour is the tick click's.
-  function reactPick(update = false, eligible = null) {
+  function reactPick(update = false) {
     const E = state.tickEngine;
     const selfId = inferSelfId();
     const me = ensureActorFromRenderer(selfId);
@@ -3283,7 +3264,7 @@
       const a = ensureActorFromRenderer(id);
       if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
       lateralNow.add(id);
-      if (eligible ? !eligible.has(id) : state.react.lateral.has(id)) continue;
+      if (state.react.lateral.has(id)) continue;
       if (rivalLocked(id, t + rttEstimateMs() + E.corr)) continue; // in its punch animation: not hittable
       const rank = a.startAt >= E.lastBatchAt - 30 ? 1 : 0; // stepped in with this batch
       if (!best || rank > best.rank) best = { id, rank };
@@ -3298,44 +3279,24 @@
       reactPick(true); // keep the contact set current for when the lock ends
       return;
     }
-    const previousContact = state.react.lateral;
     const pick = reactPick(true);
     if (!pick) return;
-    const fresh = new Set([...state.react.lateral].filter(id => !previousContact.has(id)));
     const E = state.tickEngine;
-    // Only a request sent after this batch saw the confirmed contact. A blind
-    // request sent before the walk-in may have been ignored, even at the same
-    // rival (04/10 Dylaan recording). Keep the reaction after the server gap;
-    // a confirmed hit marks the rival out and cancels it through reactPick.
-    const covered = E.lastBatchTick != null && (E.tickTargets.get(E.lastBatchTick) === pick.id || E.tickTargets2.get(E.lastBatchTick) === pick.id);
-    if (covered && state.lastPunch.targetId === pick.id && state.lastPunch.at >= E.lastBatchAt) return;
+    // This tick's click already went to it and lands after the switch.
+    if (E.lastBatchTick != null && (E.tickTargets.get(E.lastBatchTick) === pick.id || E.tickTargets2.get(E.lastBatchTick) === pick.id)) return;
     const key = `${pick.id}:${Math.round(E.lastBatchAt)}`;
     if (state.react.lastKey === key) return; // one reaction per rival and batch
     state.react.lastKey = key;
-    const seq = state.seq;
-    const batchTick = E.lastBatchTick;
-    const selfId = inferSelfId();
-    let fired = false;
     const fire = () => {
       // Still in contact and still in play when the shot leaves.
-      if (fired || !tickEnabled() || !state.timing.tick.reactive || state.seq !== seq || E.selfOut || E.lastBatchTick !== batchTick || inferSelfId() !== selfId) return;
-      // Choose again from the fresh contacts of this batch when the gap opens.
-      // A moved/eliminated/locked first choice must not erase its valid siblings.
-      const current = reactPick(false, fresh);
-      if (!current) return;
       const me = ensureActorFromRenderer(inferSelfId());
-      const a = ensureActorFromRenderer(current.id);
-      if (!me || !a) return;
-      // Another scheduled shot may have used the gap while this reaction waited.
-      // Recheck the actual request time; the backup timer must not send a duplicate.
-      const wait = (state.lastPunch.at || -1e9) + GUARD_LOCK_MS + 1 - now();
-      if (wait > 0) { setTimeout(fire, wait); return; }
+      const a = ensureActorFromRenderer(pick.id);
+      if (!me || !a || E.out.has(pick.id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
       if (state.timing.tick.single) faceBeforeClick(faceSide(me.toX, me.toY, a.toX, a.toY));
-      if (firePunch(current.id, covered ? "REACT_FALLBACK" : "REACT", { bypassThrottle: true })) { fired = true; state.react.fired++; }
+      if (firePunch(pick.id, "REACT", { bypassThrottle: true })) state.react.fired++;
     };
     const t = now();
     const free = (state.lastPunch.at || -1e9) + GUARD_LOCK_MS + 1;
-    if (covered) sendDiagnostic("react_fallback", { targetId: pick.id, previousTargetId: state.lastPunch.targetId, tick: batchTick, waitMs: Math.max(0, free - t) });
     if (t >= free) {
       fire();
     } else {
@@ -3495,7 +3456,7 @@
     const skip = (reason) => {
       E.stats.skipped++;
       E.stats.lastSkip = reason;
-      if (shot && state.diagnostics.enabled) sendDiagnostic("tick_skip", { tick: plan.n, index, reason, targetId: plan.burstTarget ?? -1 });
+      if (shot && shot.k === 0 && !shot.b && !shot.sweep && state.diagnostics.enabled) sendDiagnostic("tick_skip", { tick: plan.n, reason });
     };
     if (E.selfOut || t < E.pausedUntil) return skip(E.selfOut ? "eliminado" : "self_down");
     if (!shot) return;
@@ -3517,17 +3478,15 @@
       if (plan.burstTarget == null || plan.burstReactive) return;
       pick = { id: plan.burstTarget, reactive: false, score: plan.burstScore, repeat: true };
     } else if (shot.sweep) {
-      // Prefer the runner-up after a blind first click. If there is none, use
-      // this already scheduled slot only when the primary is still the best
-      // live candidate. The Launch recording otherwise left this window empty.
+      // Only after a blind first click: the runner-up at the sweep landing.
       if (plan.burstTarget == null || plan.burstReactive) return;
-      const landing = E.origin + plan.n * TICK_MS + phase;
-      const second = threatPick(landing, SWEEP_MIN_SCORE, plan.burstTarget);
+      const second = threatPick(E.origin + plan.n * TICK_MS + phase, SWEEP_MIN_SCORE, plan.burstTarget);
       if (!second) {
-        const primary = threatPick(landing, SWEEP_MIN_SCORE);
-        if (!primary || primary.id !== plan.burstTarget) return skip("sweep_none");
-        pick = { id: primary.id, reactive: false, score: primary.score, face: primary.face, sweep: true, retry: true };
-      } else pick = { id: second.id, reactive: false, score: second.score, face: second.face, sweep: true };
+        E.stats.skipped++;
+        E.stats.lastSkip = "sweep_none";
+        return;
+      }
+      pick = { id: second.id, reactive: false, score: second.score, face: second.face, sweep: true };
     } else if (shot.b > 0) {
       // Rest of the burst: same target and decision as its first request.
       if (plan.burstTarget == null) return;
@@ -3564,8 +3523,7 @@
     const faced = state.timing.tick.single && !E.selfOut ? faceBeforeClick(pick.face) : false;
     spinUntil(Number(msg.dueAt));
     const sentAt = now();
-    if (pick.retry && sentAt < (state.lastPunch.at || -1e9) + GUARD_LOCK_MS + 1) return skip("sweep_gap");
-    const ok = firePunch(pick.id, pick.retry ? "TICK_RETRY" : pick.repeat ? "TICK_REPEAT" : pick.sweep ? "TICK_SWEEP" : pick.reactive ? "TICK_REACT" : "TICK_BLIND", { bypassThrottle: true });
+    const ok = firePunch(pick.id, pick.repeat ? "TICK_REPEAT" : pick.sweep ? "TICK_SWEEP" : pick.reactive ? "TICK_REACT" : "TICK_BLIND", { bypassThrottle: true });
     if (ok && pick.repeat) state.tickAdv.repeats++;
     if (ok && pick.sweep) {
       E.sweepStats.fired++;
@@ -3604,11 +3562,13 @@
       `tick n=${plan.n} k=${shot.k} b=${shot.b} ${pick.reactive ? "react" : "blind"} score=${pick.score} corr=${Math.round(E.corr)}`,
       { window: "TICK", scheduler: "worker", tickPhase: phase, corrMs: Math.round(E.corr), rttMs: rttEstimateMs(), reactive: pick.reactive });
     sendDiagnostic("tick_fire", {
-      tick: plan.n, index, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, retry: Boolean(pick.retry), score: pick.score, ok, face: faced ? pick.face : 0,
+      tick: plan.n, index, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, score: pick.score, ok, face: faced ? pick.face : 0,
       lateMs: late, corrMs: E.corr, origin: E.origin, rttMs: rttEstimateMs(), burst: state.tickBurst, pre: plan.pre ? 1 : 0, preMs: plan.pre?.ms ?? null
     });
   }
 
+  // 144 (rejected) or 211 by us (hit): the reply's phase on the grid is when
+  // the server processed the shot, so it measures our landing error.
   function tickOnServerReply(t, kind, targetId = -1) {
     const E = state.tickEngine;
     if (E.origin == null) return;
@@ -3704,7 +3664,10 @@
     tickBounceRetry(best);
   }
 
-
+  // The tick click bounced (144) but its target IS next to us after the batch:
+  // it landed a hair before the switch (jitter, 26/09: 144s at T+0 and T-3).
+  // An autoclick would click again after the server gap; so do we, once per
+  // tick, landing after the gap of every click we already sent for that tick.
   function tickBounceRetry(shot) {
     const E = state.tickEngine;
     if (shot.k !== 0 || shot.reactive || E.bounceRetryTick === shot.n) return;
@@ -3717,10 +3680,6 @@
     }
     if (shot.n !== E.lastBatchTick) return;
     const id = shot.targetId;
-    // The confirmed-contact reaction may already have replaced this blind
-    // request. Its delayed reject must not cause a third click in the gap.
-    if (state.lastPunch.targetId === id && state.lastPunch.at >= E.lastBatchAt &&
-        ["REACT", "REACT_FALLBACK"].includes(state.lastPunch.reason)) return;
     const me = ensureActorFromRenderer(inferSelfId());
     const a = ensureActorFromRenderer(id);
     if (!me || !a || E.out.has(id) || isMuted(id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
@@ -3760,9 +3719,7 @@
   //    locks the next 100 ms, so the burst shrinks to 2. No cooldown: the
   //    burst widens to cover the jitter and may start before B.
   // Learned values persist in the game localStorage between sessions.
-  // Recovery uses a fresh namespace: keep previous learning for rollback, but
-  // do not import samples/correction learned from ambiguous or wrong-target replies.
-  const TICK_AUTO_KEY = "bbhub.tickAuto.v6";
+  const TICK_AUTO_KEY = "bbhub.tickAuto.v5"; // v5 (02/10): v6_58-60 saved B at -10 (144s read an RTT early); v4 (27/09): B no longer fed with 211 phases (landing + hold); v3 samples were inflated
   const TICK_AUTO_SAMPLES = 60;
 
   function tickAutoInit() {
@@ -3880,10 +3837,7 @@
     // The server cooldown (100 ms) restarts on each processed request; the
     // next shot must land after it even when both land late.
     const spacing = tickAutoSpacing();
-    // Preserve the historical arrival floor, not only the margin: a negative
-    // learned boundary must not move a single click to T+0 or before the tick.
-    const floor = cfg.single || A.cooldown !== "none" ? TICK_MARGIN_FLOOR : -120;
-    const offset = Math.round(Math.max(floor, Math.min(150, A.B + A.margin)));
+    const offset = Math.round(Math.max(-120, Math.min(150, A.B + A.margin)));
     if (cfg.single) return { auto: true, offset, burst: 1, gap, spacing, shots: 1 };
     return { auto: true, offset, burst, gap, spacing, shots: cfg.shots };
   }
@@ -3898,11 +3852,17 @@
     const eff = tickEffective();
     // With no server cooldown an early request costs nothing: the burst may
     // straddle B. Otherwise an early request wastes the next 100 ms.
-    const lo = A.cooldown === "none" ? -Math.max(5, (eff.burst - 1) * eff.gap) : Math.max(TICK_MARGIN_FLOOR, Math.round(A.sigma / 2));
+    // 01/10: the floor follows the measured jitter instead of the constant 10.
+    // With the decision off the fire path, a clean session (sigma ~4) may aim
+    // T+5; a messy one keeps today's 10 (26/09: sigma 8 bounced aims at T+6/7).
+    // The absolute floor 4 keeps the aim inside the acceptance window.
+    const lo = A.cooldown === "none" ? -Math.max(5, (eff.burst - 1) * eff.gap)
+      : Math.max(4, Math.min(TICK_MARGIN_FLOOR, Math.round(1.25 * A.sigma)), Math.round(A.sigma / 2));
     return [Math.min(lo, TICK_MARGIN_MAX), TICK_MARGIN_MAX];
   }
 
-
+  // Server phase of a reply that reaches us at t: the downlink cancels
+  // against the batch grid. p is relative to the nearest tick.
   function tickAutoPhase(t) {
     const E = state.tickEngine;
     const n = Math.round((t - E.origin) / TICK_MS);
@@ -4036,6 +3996,13 @@
 
   function tickAutoNewContact(n, ours, rival, id = null) {
     const A = state.tickEngine.auto;
+    // 02/10 (v6_61): reply phases are read on the batch grid, which already
+    // carries the downlink. A 144 is answered on landing and comes back one
+    // downlink later - like the batch - so its grid phase IS its landing (the
+    // reply matcher finds our 144s at the aimed phase +-3 ms live). v6_58
+    // subtracted the RTT again: before-samples fell outside the window and late
+    // 144s (REACT/RETRY, ~T+170) became after-samples at ~T-10, so B sank to its
+    // floor (-10) and Auto aimed at T-3.
     // After our hit the enemy is down, after its hit we are: later 144s say
     // nothing about the switch.
     const firstHit = ours.find((r) => r.kind === "hit") || null;
@@ -4062,7 +4029,7 @@
     // Only the click aimed at this tick says something about the aim: a late
     // reaction that wins, or a tick we did not click, must not move it.
     const E = state.tickEngine;
-    const aimed = E.shots.find((x) => x.n === n && x.k === 0 && x.b === 0 && x.ok && !x.reactive && (id == null || x.targetId === id));
+    const aimed = E.shots.find((x) => x.n === n && x.k === 0 && x.b === 0 && x.ok && !x.reactive);
     // A valid hit is held 50-160 ms before its 211 (dual-lab July: 185 of 185,
     // idle defender) and held hits resolve in landing order (who fires 30+ ms
     // first wins 95%). So a hit phase is aim + hold, and a rival hit while our
@@ -4078,15 +4045,17 @@
     tickAutoRace(outcome, n, firstHit ? firstHit.p : early[0] ? early[0].p : null, rival ? rival.p : null, step);
   }
 
-
+  // Lost contact: hits were processed before the switch. With no hit at all,
+  // every 144 was processed after it.
   function tickAutoLostContact(ours) {
     const hits = ours.filter((r) => r.kind === "hit");
     // 27/09: a hit landed before the switch, but its 211 phase adds the hold: no sample.
     if (hits.length) return;
-    for (const r of ours) tickAutoSample(r.p, true);
+    for (const r of ours) tickAutoSample(r.p, true); // grid phase = landing (see tickAutoNewContact)
   }
 
-
+  // Landing phase of the click aimed at tick n that drew no 144 and whose hit
+  // resolved after it (hold 0-200 ms): that click landed after the switch.
   function tickAutoAcceptedLanding(n, id, hitPhase) {
     const E = state.tickEngine;
     const A = E.auto;
@@ -4841,9 +4810,7 @@
     if (!actor) return;
     const dur = actor.stepMs > 0 ? actor.stepMs : 600;
     const selfId = inferSelfId();
-    // TICK already picks every rival independently; do not even read the ficha
-    // getter on its movement path. Legacy timing modes use the same threat model.
-    const sel = tickEnabled() ? -1 : automaticTimingTargetId();
+    const sel = selectedId();
 
     if (direction === "out" && movedId === selfId) {
       moveDelaySchedule(actor.startAt, dur);
@@ -5111,7 +5078,6 @@
         if (state.lab.running && attacker === selfId) state.lab.replies.push({ t, id: 211 });
         state.tickEngine.down.set(defender, t + 2500);
         state.tickEngine.out.add(defender);
-        state.tickEngine.outAvatars.set(defender, sceneRenderer()?.avatars?.get?.(defender) || null);
         hitLockNote(attacker, t, selfId);
         tickPreflightInvalidate();
         if (defender === selfId) state.tickEngine.selfOut = true;
@@ -5238,28 +5204,6 @@
     const owner = provider.exported && provider.exported.prototype;
     safeWrap(owner, "moveUser", "__bbFlashMoveUserHook", (original) =>
       function hookedMoveUser(userSpaceId, x, y, orientation, stepMs) {
-        // Native renderer: (id, position, reconcile, instant). Packet 182
-        // already records ordinary steps; replaying them here resets their
-        // timestamp and direction. Instant corrections have no walking step.
-        if (x && typeof x === "object") {
-          const result = original.apply(this, arguments);
-          try {
-            const id = asId(userSpaceId);
-            const px = Number(x.x), py = Number(x.y);
-            if (orientation === true && id != null && this.avatars?.has?.(id) &&
-                Number.isFinite(px) && Number.isFinite(py)) {
-              const stamp = Math.round(now());
-              state.actors.set(id, {
-                fromX: px | 0, fromY: py | 0, toX: px | 0, toY: py | 0,
-                dirX: 0, dirY: 0, startAt: stamp, endAt: stamp,
-                stepMs: 0, moving: false, orient: Number(x.z) || 0,
-                key: `${id}:${px | 0},${py | 0}`
-              });
-              tickPreflightInvalidate();
-            }
-          } catch {}
-          return result;
-        }
         try {
           const id = asId(userSpaceId);
           if (id != null && Number.isFinite(Number(x)) && Number.isFinite(Number(y))) {
@@ -5408,7 +5352,7 @@
     if ("moveDelay" in msg) state.moveDelay.enabled = Boolean(msg.moveDelay);
     if ("moveDelayMs" in msg) state.moveDelay.delayMs = clamp(msg.moveDelayMs, 0, 500);
     if (state.pulse.autoTarget) {
-      state.pulse.requireSelected = false;
+      state.pulse.requireSelected = true;
       state.pulse.multiTarget = false;
     }
     if (state.pulse.enabled) {
@@ -6185,8 +6129,7 @@
   function isStale(id) {
     if (notRingSlot(id)) return true;
     const avatars = sceneRenderer()?.avatars;
-    const avatar = avatars?.get?.(id) ?? avatars?.get?.(String(id));
-    return Boolean(avatar?.__departing) || isStaleAvatar(avatar);
+    return isStaleAvatar(avatars?.get?.(id) ?? avatars?.get?.(String(id)));
   }
 
   function isAlly(id) {
@@ -6428,32 +6371,15 @@
   function refreshEliminated() {
     const E = state.tickEngine;
     if (!E.out.size) return;
-    // In Ring an eliminated ID remains a spectator for the entire round.
-    // Roster removal/replacement is not a server confirmation of revival.
-    if (inRingRoom()) return;
     const avatars = sceneRenderer()?.avatars;
     if (!(avatars instanceof Map)) return;
-    let changed = false;
     for (const id of E.out) {
       if (!avatars.has(id)) E.outGone.add(id);
-      else if (E.outGone.has(id) || (E.outAvatars.get(id) && E.outAvatars.get(id) !== avatars.get(id))) {
+      else if (E.outGone.has(id)) {
         E.out.delete(id);
         E.outGone.delete(id);
-        E.outAvatars.delete(id);
-        E.down.delete(id);
-        E.lockUntil.delete(id);
-        E.mutedUntil.delete(id);
-        E.silentCount.delete(id);
-        state.actors.delete(id);
-        if (id === inferSelfId()) {
-          E.selfOut = false;
-          E.pausedUntil = 0;
-        }
-        changed = true;
-        sendDiagnostic("island_reentry", { targetId: id });
       }
     }
-    if (changed) tickPreflightInvalidate();
   }
 
   function sendTick() {
