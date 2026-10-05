@@ -1,15 +1,17 @@
 # BB Hub
 
-Código privado del Hub, Board y componentes auxiliares. Versión entregable:
-**0.1.6 para Windows x64**, confirmada en dos PCs de clientes el 04/10/2026.
+Código privado del Hub, Board y componentes auxiliares. Versión oficial:
+**0.1.12 para Windows x64**, promovida por el propietario el 05/10/2026.
 Licencias Basic/Pro mediante Cryptlex; el permiso
 `ring_board=true` habilita el bot.
 
-La rama local `dev/timing-auto-target` prepara **0.1.8 de prueba**:
-fichar no decide los golpes automáticos, la UI muestra el último disparo
-real y un intento anticipado ya no anula la reacción al contacto confirmado.
-Sigue pendiente comprobar su reacción en una partida real; 0.1.6
-conserva la validación de clientes. Ver `controller-electron/RELEASE.md`.
+Timing vuelve a elegir entre los contactos nuevos cuando pierde al primer
+rival durante una reacción pendiente y evita avatares en retirada. Incluye
+los arreglos anteriores de IDs/eliminaciones, independencia del fichado,
+barrido y Board automático. El instalador oficial es idéntico al de la prueba
+0.1.12 verificada. Pasaron 55 casos dirigidos sobre el runtime protegido y
+48 generales offline; sigue pendiente cuantificar la eficacia en el servidor.
+Ver `controller-electron/RELEASE.md` y `docs/releases/0.1.12.json`.
 
 Desde 0.1.3 el Hub abre el juego por su cuenta: inicia sesión con la cuenta de
 BoomBang guardada (cifrada con DPAPI), abre `BoomBangHTML5.exe` con CDP, inyecta
@@ -47,6 +49,9 @@ node qa/timing-renderer-regression.cjs
 node qa/timing-learning-regression.cjs
 node qa/timing-contact-regression.cjs
 node qa/timing-selection-regression.cjs
+node qa/timing-alive-regression.cjs
+node qa/timing-sweep-retry-regression.cjs
+node qa/timing-reselect-regression.cjs
 node qa/timing-offline-harness.cjs
 ```
 

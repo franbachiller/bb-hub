@@ -1,0 +1,56 @@
+{
+  "version": "0.1.9",
+  "channel": "local-test",
+  "platform": "Windows x64",
+  "branch": "dev/timing-alive-targets",
+  "installer": "BB Hub Setup 0.1.9.exe",
+  "installerSizeBytes": 126348420,
+  "installerSha256": "6df684eaf4885083cee22d9e581f8459cb2af7082f5267908e026210baeb4501",
+  "runtimeBuild": "04102026_html5_hub_v6_71_alive_targets",
+  "runtimeSha256": "074a90c6f5647fde0d1bcdf8fc20b000a0258cead4cd5d545cc2e17f83e9611f",
+  "asarSha256": "26e9577adae1c7b40006b7e59d00de88133ad3e9e3a2be2bdb4b328e72cb848d",
+  "findings": [
+    "Queued automatic dispatch could target an eliminated or departed ID.",
+    "Ring spectator roster replacement could clear elimination before a new round.",
+    "Island ID replacement and self reentry could retain stale elimination flags."
+  ],
+  "transport": {
+    "capturedPunches": 11,
+    "allCapturedPunchesReachedWebSocket": true,
+    "mainToWebSocketDelayMs": {
+      "min": 0.7,
+      "max": 1.5
+    },
+    "scope": "Only the recorded native main-to-worker-to-WebSocket segment."
+  },
+  "validation": {
+    "automatedSuitesPassed": [
+      "timing-alive-regression",
+      "timing-contact-regression",
+      "timing-offline-harness",
+      "timing-renderer-regression",
+      "timing-learning-regression",
+      "timing-selection-regression",
+      "runtime-security",
+      "client-discovery",
+      "port-conflict",
+      "protected-combat",
+      "packaged-smoke",
+      "verify-distribution",
+      "verify-installer"
+    ],
+    "combatHarnessCases": 48,
+    "aliveRegressionCases": 6,
+    "previousRuntimeFailures": 5,
+    "contactRegressionCases": 7,
+    "selectionCases": 9,
+    "protectedPackagePassed": true,
+    "installerMatchesTestedPackage": true,
+    "actualGameplayValidated": false,
+    "allMissedCrossingsExplained": false
+  },
+  "licenseSystemChanged": false,
+  "personalConfigurationExcluded": true,
+  "publishedToGitHub": false,
+  "publishedToUpdater": false
+}

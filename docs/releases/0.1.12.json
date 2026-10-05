@@ -1,0 +1,81 @@
+{
+  "version": "0.1.12",
+  "channel": "stable",
+  "platform": "Windows x64",
+  "installer": "BB Hub Setup 0.1.12.exe",
+  "installerSizeBytes": 126348171,
+  "installerSha256": "d4fab8f41a5fddc57835f2f9c05d02b874f54cb279340ac1ad2c92e51cc88283",
+  "asarSha256": "d3db173af5995769b64a16d53376005b326ee31ec63813101ef16ec409deac9d",
+  "runtimeBuild": "05102026_html5_hub_v6_73_contact_reselect",
+  "runtimeSha256": "147ae1879183fc46d60959b43ec2a06ec3751279856fd1e3e312550863ec7604",
+  "changes": {
+    "pendingReactionReselectsAmongFreshContacts": true,
+    "nativeDepartingAvatarsExcludedAutomatically": true
+  },
+  "validation": {
+    "passedSuites": [
+      "timing-reselect-regression",
+      "timing-contact-regression",
+      "timing-offline-harness",
+      "timing-sweep-retry-regression",
+      "timing-alive-regression",
+      "timing-selection-regression",
+      "timing-renderer-regression",
+      "timing-learning-regression",
+      "runtime-security",
+      "client-discovery",
+      "port-conflict",
+      "pro-hotkey-updater",
+      "protected-combat",
+      "board-auto",
+      "packaged-smoke",
+      "verify-distribution",
+      "verify-installer",
+      "verify-launchers"
+    ],
+    "protectedRuntimeRegressionCases": 55,
+    "offlineCombatCases": 48,
+    "fixtureClockIsNotLatencyBenchmark": true,
+    "baselineReproducesMissingFallback": true,
+    "installerMatchesTestedPackage": true,
+    "liveGameEfficacyValidated": false,
+    "allLossesExplained": false,
+    "launcherAndRollbackValidatedWithAppStartMocked": true,
+    "publicDownloadSizeAndSha256Verified": true,
+    "licensedUpdaterEndToEndVerified": false,
+    "licensedUpdaterVerificationNote": "Native verification did not complete: LA_E_CLIENT (92) in update check, followed by no usable activation in the isolated QA process. No activation, deactivation or entitlement changes were performed."
+  },
+  "preserved": {
+    "licensesAndCryptlexConfiguration": true,
+    "accountAndSettings": true,
+    "previousAliveTargetsAndSweepRetryFixes": true,
+    "boardAutomaticPersistenceFix": true,
+    "existingDispatchGapAndRepeatSettings": true,
+    "previousInstallerAndRunnablePackage": true
+  },
+  "personalConfigurationExcluded": true,
+  "publishedToGitHub": true,
+  "publishedToUpdater": true,
+  "promotion": {
+    "date": "2026-10-05",
+    "authorization": "User requested official release",
+    "installerUnchanged": true
+  },
+  "sourceTag": "v0.1.12",
+  "downloadRepository": "bachillerfran-afk/bb-hub-releases",
+  "sourceRepository": "bachillerfran-afk/bb-hub",
+  "releaseUrl": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/tag/v0.1.12",
+  "installerDownloadUrl": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.12/BB-Hub-Setup-0.1.12.exe",
+  "cryptlex": {
+    "environment": "Production",
+    "channel": "stable",
+    "platform": "windows",
+    "published": true,
+    "externalFiles": [
+      "BB-Hub-Setup-0.1.12.exe",
+      "SHA256.txt"
+    ],
+    "publicationVerifiedInPanel": true,
+    "licensePoliciesOrEntitlementsChanged": false
+  }
+}

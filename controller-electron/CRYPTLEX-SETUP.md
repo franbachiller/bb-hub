@@ -1,5 +1,25 @@
 # Basic, Pro y actualizaciones — BB Hub 0.1.2
 
+## Publicación vigente — 5 de octubre de 2026
+
+BB Hub **0.1.12** está publicado en Production, canal `stable`, plataforma
+`windows`, con dos archivos externos: `BB-Hub-Setup-0.1.12.exe` y `SHA256.txt`.
+La descarga usa el repositorio público `bachillerfran-afk/bb-hub-releases`;
+el código permanece en el repositorio privado `bb-hub`. El EXE publicado es
+idéntico a la prueba 0.1.12, SHA256
+`d4fab8f41a5fddc57835f2f9c05d02b874f54cb279340ac1ad2c92e51cc88283`,
+126348171 bytes. Se descargó públicamente y se verificó su tamaño y hash.
+
+Cryptlex conserva el MD5 requerido para archivos externos; el Hub usa el
+SHA256 del manifiesto. No se cambiaron licencias, políticas ni permisos.
+La publicación se comprobó en el panel. La prueba nativa del actualizador
+no pudo completarse: devolvió `LA_E_CLIENT` (92) y la siguiente ejecución
+del proceso QA no tuvo activación utilizable. No se activó ni desactivó
+ninguna licencia para resolverlo. La validación completa con un cliente
+licenciado sigue pendiente. Ver `../docs/releases/0.1.12.json`.
+
+## Estado histórico — 3 de octubre de 2026
+
 El cliente está preparado. El 3 de octubre de 2026 se configuraron en el
 entorno Production de Cryptlex la función `ring_board` (Board Pro) y los
 conjuntos `basic` (nombre visible Basic, tier 0, valor `false`) y `pro`

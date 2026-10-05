@@ -1,0 +1,105 @@
+{
+  "version": "0.1.11",
+  "channel": "local-test",
+  "platform": "Windows x64",
+  "installer": "BB Hub Setup 0.1.11.exe",
+  "installerSizeBytes": 126348411,
+  "installerSha256": "505b061aa1ea60aa8a68d6e55abcd7771df46c30f6f1ce103b14c3ad4451811b",
+  "asarSha256": "ef5bcbf1239fdb6226b35a88cf22265eeb7a7b245de9afc39502bf85e2c8a608",
+  "runtimeBuild": "04102026_html5_hub_v6_72_sweep_retry",
+  "runtimeSha256": "b4c8a9d150215375d911bf981ece2a0408614740a035aeb1f6e9d7dfbb3d529d",
+  "evidence": {
+    "launchHitUtc": "2026-10-04T21:40:19.854Z",
+    "automaticAttempts": [
+      {
+        "millisecondsBeforeHit": 440,
+        "targetId": 0,
+        "reason": "TICK_BLIND"
+      },
+      {
+        "millisecondsBeforeHit": 264,
+        "targetId": 0,
+        "reason": "REACT_FALLBACK"
+      }
+    ],
+    "automaticHitConfirmed": false,
+    "missingSecondarySlotReproduced": true,
+    "manualHitUtc": "2026-10-04T21:49:59.331Z",
+    "manualTarget": 26,
+    "manualOutgoingOpcode": 211,
+    "manualOutgoingFields": [
+      "26"
+    ],
+    "manualIntervalsApproximatelyMs": [
+      120,
+      123
+    ],
+    "manualHitConfirmed": true,
+    "manualAndAutomaticPacketFormatEqual": true
+  },
+  "changes": {
+    "emptySweepRetriesBestValidPrimary": true,
+    "eligibleRunnerUpStillPreferred": true,
+    "retryUsesExistingScheduledSlot": true,
+    "retryRechecksActualServerGap": true,
+    "pendingReactionRechecksGap": true,
+    "successfulReactionCancelsBackupLogically": true,
+    "additionalCombatSkipReasonsRecorded": true
+  },
+  "validation": {
+    "passedSuites": [
+      "timing-sweep-retry-regression",
+      "timing-offline-harness",
+      "timing-contact-regression",
+      "timing-selection-regression",
+      "timing-alive-regression",
+      "timing-renderer-regression",
+      "timing-learning-regression",
+      "runtime-security",
+      "client-discovery",
+      "port-conflict",
+      "pro-hotkey-updater",
+      "protected-combat",
+      "board-auto",
+      "packaged-smoke",
+      "verify-distribution",
+      "verify-installer"
+    ],
+    "protectedRuntimeRegressionCases": 41,
+    "installerMatchesTestedPackage": true,
+    "recordedPositionsSimulationPassed": true,
+    "liveGameEfficacyValidated": false,
+    "allLossesExplained": false,
+    "legacyBoardSuiteFromPreviousValidatedBuild": {
+      "preexistingFailingCases": 13,
+      "preexistingMissingModuleSuites": 1,
+      "unchangedFailures": [
+        "tests/board-model.test.ts > board-model target resolution > does not treat raw visual selection as authoritative movement target",
+        "tests/brain-controller.test.ts > brain controller > commits against an exposed idle enemy instead of orbiting",
+        "tests/brain-controller.test.ts > brain controller > enters commit mode against a quiet isolated target",
+        "tests/brain-controller.test.ts > brain controller > keeps punish chain locked for a nearby exposed target",
+        "tests/brain-controller.test.ts > brain controller > prefers the nearby engaged attacker over a far camper",
+        "tests/brain-controller.test.ts > brain controller > stays in a defensive local mode when two enemies collapse on self",
+        "tests/fire-controller.test.ts > fire controller > arms a compressed hot burst around the opening edge",
+        "tests/fire-controller.test.ts > fire controller > emits a fire plan and retries while the same window is alive",
+        "tests/fire-controller.test.ts > fire controller > keeps the strike target chosen by the strike window",
+        "tests/fire-controller.test.ts > fire controller > still emits when step-cadence detects a close crossing without strikeWindow",
+        "tests/move-controller.test.ts > move controller > emits move_plan tiles around the projected contact zone",
+        "tests/move-controller.test.ts > move controller > prefers a nearby attacker over a far anchored target",
+        "tests/move-controller.test.ts > move controller > upgrades stale lure into commit against a reachable camper",
+        "tests/strike-planner.test.ts [ tests/strike-planner.test.ts ]"
+      ],
+      "newPersistenceTestsPassed": 2
+    }
+  },
+  "previousFixesRetained": [
+    "eliminated and stale automatic targets blocked",
+    "Ring eliminations persist until new round",
+    "island reentry resets stale elimination",
+    "Board policy and memory stored in userData"
+  ],
+  "licenseSystemChanged": false,
+  "personalConfigurationExcluded": true,
+  "publishedToGitHub": false,
+  "publishedToUpdater": false
+}

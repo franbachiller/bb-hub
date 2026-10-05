@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parentPort } from "node:worker_threads";
+import { parentPort, workerData } from "node:worker_threads";
 import { predictWindowForEntities, ringTargetDistance } from "../solver/contact-solver.js";
 import { MoveController } from "../solver/move-controller.js";
 import { TileBrain } from "../solver/tile-brain.js";
@@ -14,7 +14,8 @@ import { ResolveStandbyTracker } from "./resolve-standby.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..", "..");
-const memoryFile = path.join(rootDir, "data", "opponent-memory.json");
+const dataDir = workerData?.dataDir ?? path.join(rootDir, "data");
+const memoryFile = path.join(dataDir, "opponent-memory.json");
 const DEFAULT_TIMING_START_PCT = 79;
 const DEFAULT_TIMING_END_PCT = 100;
 const DEFAULT_TIMING_INTERVAL_MS = 33;
@@ -47,7 +48,7 @@ const SWARM_SWITCH_RING_MARGIN = 0.32;
 const SWARM_SWITCH_HOT_ETA_MARGIN = 14;
 const SWARM_KEEP_RING_MAX = 4.45;
 const memory = new OpponentMemoryStore(memoryFile);
-memory.loadSync();
+memory.loadSync(path.join(rootDir, "data", "opponent-memory.json"));
 const resolveStandbyTracker = new ResolveStandbyTracker();
 const moveController = new MoveController();
 // Movement: the tile brain (the ring as a board, one step per tick). The old

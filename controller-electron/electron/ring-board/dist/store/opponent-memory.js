@@ -33,13 +33,14 @@ export class OpponentMemoryStore {
         this.memory = defaultFile();
         this.filePath = filePath;
     }
-    loadSync() {
-        if (!fs.existsSync(this.filePath)) {
-            this.ensureParentDir();
+    loadSync(seedFilePath) {
+        const hasLocalFile = fs.existsSync(this.filePath);
+        const readPath = hasLocalFile ? this.filePath : seedFilePath;
+        if (!readPath || !fs.existsSync(readPath)) {
             this.saveSync();
             return;
         }
-        const raw = fs.readFileSync(this.filePath, "utf8");
+        const raw = fs.readFileSync(readPath, "utf8");
         const parsed = JSON.parse(raw);
         const next = defaultFile();
         for (const archetype of ARCHETYPES) {
@@ -55,6 +56,8 @@ export class OpponentMemoryStore {
             }
         }
         this.memory = next;
+        if (!hasLocalFile)
+            this.saveSync();
     }
     saveSync() {
         this.ensureParentDir();
