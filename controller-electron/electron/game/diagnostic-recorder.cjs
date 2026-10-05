@@ -6,7 +6,7 @@ const path = require("node:path");
 // Combat evidence only: movement, uppers and replies, coco, and what the
 // engines decided. Never auth, tickets or chat.
 const EVENTS = new Set([
-  "packet", "config", "fire_attempt", "room_boundary",
+  "packet", "config", "fire_attempt", "fire_target_blocked", "island_reentry", "room_boundary",
   "tick_fire", "tick_skip", "tick_reply", "tick_race", "target_muted", "exit_fire", "exit_result", "guard_fire", "unlock_fire", "runlock_fire", "tick_dual", "lab_cooldown",
   // who is behind each room id (per ring), and every ring-board move decision with its reason
   "roster", "rb_move", "burst_ab", "coco_guard", "platform", "reach_probe", "auto_ring", "emote", "requeue", "react_fallback"

@@ -42,9 +42,22 @@ function fixture() {
   assert.equal(f.ctx.sends.length,1);
   assert.equal(f.ctx.sends[0].id,2,"the confirmed contact gets the fallback, not the other sweep target");
   assert.equal(f.ctx.sends[0].reason,"REACT_FALLBACK");
+  f.ctx.t = 314643; f.timers[1].fn();
+  assert.equal(f.ctx.sends.length,1,"the backup timer cannot repeat a successful reaction");
   const count = f.timers.length; f.q.reactCheck();
   assert.equal(f.timers.length,count,"one reaction plan per contact/batch");
   console.log("PASS recorded first pass: primary at rival 2, sweep at 7, fallback returns to confirmed rival 2 after the gap");
+}
+{
+  const f = fixture(); f.q.reactCheck();
+  f.q.state.lastPunch.at = 314620; f.q.state.lastPunch.targetId = 7;
+  f.ctx.t = 314637; f.timers[0].fn();
+  assert.equal(f.ctx.sends.length,0,"a shot during the wait moves the actual free time");
+  assert.equal(f.timers.at(-1).ms,84);
+  f.ctx.t = 314721; f.timers.at(-1).fn();
+  assert.equal(f.ctx.sends.length,1);
+  assert.equal(f.ctx.sends[0].id,2);
+  console.log("PASS pending contact rechecks the actual gap after an intervening shot");
 }
 {
   const f = fixture(); f.q.reactCheck();

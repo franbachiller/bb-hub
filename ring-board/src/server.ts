@@ -23,6 +23,7 @@ import type {
 } from "./shared/protocol.js";
 import { SensorStore } from "./store/sensor-store.js";
 import { ScenePolicyStore } from "./store/scene-policy.js";
+import { boardDataDir } from "./store/data-paths.js";
 import { buildBoardModel } from "./store/board-model.js";
 import { RoundTracker } from "./runtime/round-tracker.js";
 import type { BrainWorkerRequest, BrainWorkerResponse } from "./runtime/brain-worker-protocol.js";
@@ -35,10 +36,11 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const publicDir = path.join(rootDir, "public");
 const distDir = path.join(rootDir, "dist");
-const policyFile = path.join(rootDir, "data", "scene-policy.json");
+const dataDir = boardDataDir(rootDir);
+const policyFile = path.join(dataDir, "scene-policy.json");
 
 const policy = new ScenePolicyStore(policyFile);
-policy.loadSync();
+policy.loadSync(path.join(rootDir, "data", "scene-policy.json"));
 
 const sensors = new SensorStore(3000);
 const roundTracker = new RoundTracker();
@@ -890,7 +892,8 @@ function flushPendingEvaluate(): void {
 
 function createBrainWorker(): Worker {
   const nextWorker = new Worker(workerUrl, {
-    execArgv: workerExecArgv
+    execArgv: workerExecArgv,
+    workerData: { dataDir }
   });
 
   nextWorker.on("message", (message: BrainWorkerResponse) => {

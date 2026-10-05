@@ -1,0 +1,67 @@
+{
+  "version": "0.1.10",
+  "channel": "local-test",
+  "platform": "Windows x64",
+  "installer": "BB Hub Setup 0.1.10.exe",
+  "installerSizeBytes": 126348803,
+  "installerSha256": "f428417328c26037315102884e52f2fb8694c60d9e476497dfbaef3e481b26c8",
+  "asarSha256": "2a5693290d227b2f893a8cc0401ba50b3a307f0291a40c541e13561fd8f7a514",
+  "runtimeBuild": "04102026_html5_hub_v6_71_alive_targets",
+  "runtimeSha256": "074a90c6f5647fde0d1bcdf8fc20b000a0258cead4cd5d545cc2e17f83e9611f",
+  "finding": {
+    "error": "ENOTDIR",
+    "trigger": "ControllerCore.setAutoRun(true) -> mark_scene_allowed -> ScenePolicyStore.saveSync",
+    "previousWriteLocation": "resources/app.asar/electron/ring-board/data",
+    "newWriteLocation": "app.getPath(userData)/ring-board",
+    "opponentMemoryAlsoMoved": true,
+    "initialBundledDataSeededOnce": true
+  },
+  "validation": {
+    "passedSuites": [
+      "compile",
+      "persistence",
+      "baseline-auto",
+      "compare-tests",
+      "pro-hotkey-updater",
+      "board-auto",
+      "protected-combat",
+      "packaged-smoke",
+      "verify-distribution",
+      "verify-installer"
+    ],
+    "oldPackagedFailureReproduced": true,
+    "packagedAutoRunPassed": true,
+    "packagedMovementObserved": true,
+    "simulatedSceneTransitionsPassed": true,
+    "workerMemorySavePassed": true,
+    "boardLicenseRemovalPassed": true,
+    "installerMatchesTestedPackage": true,
+    "liveGameAutomaticCycleValidated": false,
+    "legacyBoardSuite": {
+      "preexistingFailingCases": 13,
+      "preexistingMissingModuleSuites": 1,
+      "unchangedFailures": [
+        "tests/board-model.test.ts > board-model target resolution > does not treat raw visual selection as authoritative movement target",
+        "tests/brain-controller.test.ts > brain controller > commits against an exposed idle enemy instead of orbiting",
+        "tests/brain-controller.test.ts > brain controller > enters commit mode against a quiet isolated target",
+        "tests/brain-controller.test.ts > brain controller > keeps punish chain locked for a nearby exposed target",
+        "tests/brain-controller.test.ts > brain controller > prefers the nearby engaged attacker over a far camper",
+        "tests/brain-controller.test.ts > brain controller > stays in a defensive local mode when two enemies collapse on self",
+        "tests/fire-controller.test.ts > fire controller > arms a compressed hot burst around the opening edge",
+        "tests/fire-controller.test.ts > fire controller > emits a fire plan and retries while the same window is alive",
+        "tests/fire-controller.test.ts > fire controller > keeps the strike target chosen by the strike window",
+        "tests/fire-controller.test.ts > fire controller > still emits when step-cadence detects a close crossing without strikeWindow",
+        "tests/move-controller.test.ts > move controller > emits move_plan tiles around the projected contact zone",
+        "tests/move-controller.test.ts > move controller > prefers a nearby attacker over a far anchored target",
+        "tests/move-controller.test.ts > move controller > upgrades stale lure into commit against a reachable camper",
+        "tests/strike-planner.test.ts [ tests/strike-planner.test.ts ]"
+      ],
+      "newPersistenceTestsPassed": 2
+    }
+  },
+  "timingIdenticalTo019": true,
+  "licenseSystemChanged": false,
+  "personalConfigurationExcluded": true,
+  "publishedToGitHub": false,
+  "publishedToUpdater": false
+}

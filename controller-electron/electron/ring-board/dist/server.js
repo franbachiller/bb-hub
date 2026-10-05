@@ -7,6 +7,7 @@ import { WebSocketServer } from "ws";
 import { createRequire } from "node:module";
 import { SensorStore } from "./store/sensor-store.js";
 import { ScenePolicyStore } from "./store/scene-policy.js";
+import { boardDataDir } from "./store/data-paths.js";
 import { buildBoardModel } from "./store/board-model.js";
 import { RoundTracker } from "./runtime/round-tracker.js";
 const requireLicense = createRequire(import.meta.url);
@@ -31,9 +32,10 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const publicDir = path.join(rootDir, "public");
 const distDir = path.join(rootDir, "dist");
-const policyFile = path.join(rootDir, "data", "scene-policy.json");
+const dataDir = boardDataDir(rootDir);
+const policyFile = path.join(dataDir, "scene-policy.json");
 const policy = new ScenePolicyStore(policyFile);
-policy.loadSync();
+policy.loadSync(path.join(rootDir, "data", "scene-policy.json"));
 const sensors = new SensorStore(3000);
 const roundTracker = new RoundTracker();
 const app = express();
@@ -817,7 +819,8 @@ function flushPendingEvaluate() {
 }
 function createBrainWorker() {
     const nextWorker = new Worker(workerUrl, {
-        execArgv: workerExecArgv
+        execArgv: workerExecArgv,
+        workerData: { dataDir }
     });
     nextWorker.on("message", (message) => {
         if (message.type !== "result") {

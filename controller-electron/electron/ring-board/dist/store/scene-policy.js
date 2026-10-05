@@ -10,13 +10,14 @@ export class ScenePolicyStore {
         this.armed = false;
         this.filePath = filePath;
     }
-    loadSync() {
-        if (!fs.existsSync(this.filePath)) {
-            this.ensureParentDir();
+    loadSync(seedFilePath) {
+        const hasLocalFile = fs.existsSync(this.filePath);
+        const readPath = hasLocalFile ? this.filePath : seedFilePath;
+        if (!readPath || !fs.existsSync(readPath)) {
             this.saveSync();
             return;
         }
-        const raw = fs.readFileSync(this.filePath, "utf8");
+        const raw = fs.readFileSync(readPath, "utf8");
         const parsed = JSON.parse(raw);
         this.policy = {
             allowedCombatHashes: Array.isArray(parsed.allowedCombatHashes)
@@ -26,6 +27,8 @@ export class ScenePolicyStore {
                 ? parsed.ignoredHashes.map(String)
                 : []
         };
+        if (!hasLocalFile)
+            this.saveSync();
     }
     saveSync() {
         this.ensureParentDir();

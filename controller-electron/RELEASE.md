@@ -1,5 +1,122 @@
 # BB Hub — distribución Windows
 
+## 0.1.12 oficial — reelección de contacto y avatares en retirada
+
+Durante la espera del intervalo de envío, la reacción conservaba el primer
+objetivo. Si se movía, salía o quedaba eliminado/bloqueado, cancelaba el golpe
+aunque otro rival del mismo lote siguiera en contacto. v6_73 vuelve a elegir
+entre los contactos nuevos originales al ejecutar la reacción. Conserva el
+intervalo real, la cancelación por cambio de sala/lote, eliminación propia o
+Timing apagado y la prevención de duplicados. No añade objetivos de contactos
+anteriores ni cambia el aprendizaje, la repetición o las opciones del usuario.
+
+El cliente puede conservar un avatar marcado `__departing` mientras termina
+su animación. Ese objeto ya no es un rival elegible para el cliente nativo.
+Timing ahora consulta la marca en su filtro de entidades y rechaza tanto la
+elección como los envíos automáticos retenidos hacia ese avatar.
+
+La investigación y sus límites están en `../docs/timing-investigacion-2026-10-05.md`.
+Ambos defectos se reproducen; no se ha demostrado que expliquen todas las
+derrotas ni que la eficacia contra el servidor vuelva a ser la anterior.
+El propietario solicitó oficializar esta versión el 05/10/2026. Se promueve
+el mismo instalador verificado, sin recompilar ni cambiar sus bytes. Conserva
+los arreglos anteriores de Timing y Board y el retorno local a 0.1.11.
+
+Validación: 55 casos dirigidos en el runtime del ASAR protegido, 48 casos
+generales offline con el wrapper de reloj fijo, Board automático/persistencia
+y permisos, UI/activación, detección del cliente, conflicto de puerto y
+actualizador. El ASAR del instalador coincide con el paquete probado; conserva
+bytecode, fuses e integridad. No contiene cuentas ni ajustes personales.
+Los lanzadores se comprobaron con el arranque de la aplicación simulado.
+Entrega: `../DISTRIBUIBLE_0.1.12/BB Hub Setup 0.1.12.exe`; en esta PC,
+`../ABRIR_TIMING_PRUEBA_0.1.12.cmd`, runtime `v6_73_contact_reselect`.
+Resultado verificable de la prueba: `../docs/releases/0.1.12-test.json`.
+Promoción oficial y publicación: `../docs/releases/0.1.12.json`.
+
+Publicada en el repositorio público de instaladores y en Cryptlex Production,
+canal `stable`, plataforma `windows`. La descarga pública conserva tamaño y
+SHA256 de la prueba. El código sigue privado. El catálogo y sus dos archivos
+se verificaron en el panel; la prueba nativa de actualización con activación
+local no pudo completarse (`LA_E_CLIENT`, luego sin activación utilizable en
+el proceso QA). No se activaron/desactivaron licencias ni se cambiaron permisos.
+
+## 0.1.11 de prueba — oportunidad vacía y reacción pendiente
+
+En el cruce con Launch del 04/10 a las 18:40:19 (Argentina), salieron dos
+pedidos al ID correcto, 440 y 264 ms antes del golpe recibido. Ninguno tuvo
+confirmación. Esto no demuestra la causa de todos los fallos ni dónde se
+ignoraron esos pedidos. El golpe manual posterior sí tuvo confirmación y usa
+el mismo formato de paquete 211, con tres envíos separados por unos 120 ms.
+
+La reproducción con las posiciones registradas muestra una oportunidad vacía:
+el sweep excluía al objetivo principal y no enviaba nada si no había segundo
+candidato. v6_72 conserva la preferencia por el segundo rival; si no existe,
+revalida al principal y aprovecha ese disparo ya programado solamente si sigue
+siendo el mejor candidato válido y pasó el intervalo de 100 ms del último envío.
+No añade temporizadores de disparo ni cambia los ajustes del usuario.
+
+La reacción pendiente vuelve a comprobar ese intervalo al ejecutarse, por si
+otro disparo salió mientras esperaba. Su temporizador de respaldo se cancela
+lógicamente tras un envío exitoso: no produce un duplicado. El registro conserva
+también las razones de omisión de los disparos secundarios, los bloqueos de IDs
+y las reentradas de isla para poder investigar la siguiente pelea.
+
+Se conservan las correcciones de IDs/eliminaciones de 0.1.9 y la persistencia
+del Board automático de 0.1.10. Licencias, Cryptlex, cuentas y selección manual
+sin cambios. Prueba local; falta validar su eficacia jugando contra el servidor.
+
+## 0.1.10 de prueba — Board automático en el instalador
+
+Al activar el modo automático de Timing, `setAutoRun` habilita la sala y arma
+Board. La política de salas se intentaba guardar dentro de `resources/app.asar`,
+un recurso de solo lectura. El registro contiene `ENOTDIR` en
+`ScenePolicyStore.markSceneAllowed`; el fallo se reproduce con el paquete 0.1.9
+al ejecutar la activación real del Controller. La memoria de rivales usaba
+la misma ubicación incorrecta en el worker.
+
+En Electron, política y memoria se guardan en `app.getPath("userData")/ring-board`.
+El proceso principal pasa esta ubicación al worker, incluidos sus reinicios.
+La primera apertura copia los valores iniciales del paquete; las siguientes
+conservan las modificaciones y el aprendizaje del perfil. El Board independiente
+en Node conserva su carpeta `data`. No se cambian el solver, las decisiones de
+Timing v6_71 ni las licencias.
+
+Validación: reproducción de la excepción en el ASAR anterior, compilación
+TypeScript, persistencia y comprobación del flujo automático en el paquete nuevo.
+La prueba usa un perfil temporal y sensores simulados; no paga entradas ni abre
+cuentas del juego. Falta confirmar el ciclo contra el servidor real.
+
+La suite general antigua de Board tiene 13 pruebas fallidas y una suite que
+importa un `strike-planner.js` inexistente; la misma ejecución en una copia
+aislada de HEAD reproduce esos fallos antes de esta corrección. Se conservan
+como deuda previa y no se cambian los cerebros para hacerlas pasar.
+
+## 0.1.9 de prueba — eliminación e IDs válidos al disparar
+
+Un objetivo retenido por un repeat/burst/exit podía recibir un pedido automático
+después de que un 211 lo marcara eliminado. El selector inicial filtraba muertos,
+pero el envío final no validaba decisiones ya guardadas. Ahora el envío automático
+requiere un avatar actual, no obsoleto y no eliminado; el control manual se conserva.
+
+`refreshEliminated` también aplicaba a Ring la regla de reentrada de islas:
+un ID eliminado que desaparecía y reaparecía se volvía elegible sin nueva ronda.
+En Ring la eliminación permanece hasta el cambio de ronda/sala. En islas se detecta
+también el reemplazo de avatar entre dos comprobaciones de 100 ms, y la reentrada
+propia limpia tanto `selfOut` como la pausa antigua.
+
+Se conservan v6_70, sus decisiones de Timing y la independencia de la ficha;
+no es otro rollback. Seis regresiones prueban envíos pendientes, reemplazo de
+espectadores, nueva ronda, reentrada y caché de IDs. Las pruebas históricas de isla
+se ajustan para usar una escena de isla y recrear avatares como el cliente real.
+
+La observación del cliente v6_70 confirmó la salida de 11 punches por WebSocket,
+con 0,7–1,5 ms desde el envío al worker hasta el socket. No demuestra aceptación
+del servidor ni excluye otros fallos intermitentes. Los defectos de estado se
+reprodujeron fuera del juego; falta validar v6_71 jugando en Ring.
+
+Runtime: `04102026_html5_hub_v6_71_alive_targets`. Entrega local de prueba,
+sin publicación remota. Licencias, Cryptlex, cuenta y UI sin cambios.
+
 ## 0.1.8 de prueba — reacción al contacto después de un intento anticipado
 
 El registro del 04/10/2026 a las 15:18:44 (Argentina) muestra a Herbert

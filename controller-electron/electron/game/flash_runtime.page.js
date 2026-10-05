@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "04102026_html5_hub_v6_70_confirmed_contact";
+  const BRIDGE_BUILD = "05102026_html5_hub_v6_73_contact_reselect";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -293,6 +293,7 @@
       out: new Set(),
       outGone: new Set(), // out players that already left the room
       selfOut: false,
+      outAvatars: new Map(), // identity at elimination, scoped to the current room/round
       // Targets the server never answers (no 144, no 211): skipped for a while.
       silentPending: [], // { id, at } engine clicks waiting for a reply
       silentCount: new Map(),
@@ -1527,6 +1528,14 @@
       state.stats.outHeld = (state.stats.outHeld || 0) + 1;
       return false;
     }
+    // A queued repeat/burst/exit may retain a target after a 211 or departure.
+    // Recheck the live user namespace at dispatch, including cached decisions.
+    if (!["CTRL", "manual"].includes(reason) &&
+        (state.tickEngine.out.has(id) || isStale(id) || !sceneRenderer()?.avatars?.has?.(id))) {
+      state.stats.invalidTargetHeld = (state.stats.invalidTargetHeld || 0) + 1;
+      sendDiagnostic("fire_target_blocked", { targetId: id, reason: reason || "", eliminated: state.tickEngine.out.has(id) });
+      return false;
+    }
     if (!["CTRL", "manual", "EXIT"].includes(reason) && exitBlocksLanding(now() + rttEstimateMs() + state.tickEngine.corr)) {
       state.stats.cocoHeld = (state.stats.cocoHeld || 0) + 1;
       return false;
@@ -1576,7 +1585,7 @@
       const t = now();
       const inGap = t - (E.silentLastClickAt ?? -1e9) < SILENT_GAP_MS || t - (E.silentLastReplyAt ?? -1e9) < SILENT_GAP_MS;
       E.silentLastClickAt = t;
-      if (!inGap && !["CTRL", "manual", "TICK_DUAL", "TICK_SWEEP", "TICK_REPEAT", "REACH_PROBE", "RETRY"].includes(reason)) {
+      if (!inGap && !["CTRL", "manual", "TICK_DUAL", "TICK_SWEEP", "TICK_RETRY", "TICK_REPEAT", "REACH_PROBE", "RETRY"].includes(reason)) {
         E.silentPending.push({ id, at: t });
         while (E.silentPending.length > 20) E.silentPending.shift();
       }
@@ -3029,6 +3038,7 @@
     E.tickTargets2.clear();
     E.out.clear();
     E.outGone.clear();
+    E.outAvatars.clear();
     E.selfOut = false;
     E.silentPending = [];
     E.silentCount.clear();
@@ -3258,7 +3268,7 @@
 
   // Lateral enemies now; `fresh` = not lateral at the previous check (the
   // contact is new with this batch). A standing neighbour is the tick click's.
-  function reactPick(update = false) {
+  function reactPick(update = false, eligible = null) {
     const E = state.tickEngine;
     const selfId = inferSelfId();
     const me = ensureActorFromRenderer(selfId);
@@ -3273,7 +3283,7 @@
       const a = ensureActorFromRenderer(id);
       if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
       lateralNow.add(id);
-      if (state.react.lateral.has(id)) continue;
+      if (eligible ? !eligible.has(id) : state.react.lateral.has(id)) continue;
       if (rivalLocked(id, t + rttEstimateMs() + E.corr)) continue; // in its punch animation: not hittable
       const rank = a.startAt >= E.lastBatchAt - 30 ? 1 : 0; // stepped in with this batch
       if (!best || rank > best.rank) best = { id, rank };
@@ -3288,8 +3298,10 @@
       reactPick(true); // keep the contact set current for when the lock ends
       return;
     }
+    const previousContact = state.react.lateral;
     const pick = reactPick(true);
     if (!pick) return;
+    const fresh = new Set([...state.react.lateral].filter(id => !previousContact.has(id)));
     const E = state.tickEngine;
     // Only a request sent after this batch saw the confirmed contact. A blind
     // request sent before the walk-in may have been ignored, even at the same
@@ -3303,15 +3315,23 @@
     const seq = state.seq;
     const batchTick = E.lastBatchTick;
     const selfId = inferSelfId();
+    let fired = false;
     const fire = () => {
       // Still in contact and still in play when the shot leaves.
-      if (!tickEnabled() || !state.timing.tick.reactive || state.seq !== seq || E.selfOut || E.lastBatchTick !== batchTick || inferSelfId() !== selfId) return;
+      if (fired || !tickEnabled() || !state.timing.tick.reactive || state.seq !== seq || E.selfOut || E.lastBatchTick !== batchTick || inferSelfId() !== selfId) return;
+      // Choose again from the fresh contacts of this batch when the gap opens.
+      // A moved/eliminated/locked first choice must not erase its valid siblings.
+      const current = reactPick(false, fresh);
+      if (!current) return;
       const me = ensureActorFromRenderer(inferSelfId());
-      const a = ensureActorFromRenderer(pick.id);
-      if (!me || !a || E.out.has(pick.id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
-      if (rivalLocked(pick.id, now() + rttEstimateMs() + E.corr)) return;
+      const a = ensureActorFromRenderer(current.id);
+      if (!me || !a) return;
+      // Another scheduled shot may have used the gap while this reaction waited.
+      // Recheck the actual request time; the backup timer must not send a duplicate.
+      const wait = (state.lastPunch.at || -1e9) + GUARD_LOCK_MS + 1 - now();
+      if (wait > 0) { setTimeout(fire, wait); return; }
       if (state.timing.tick.single) faceBeforeClick(faceSide(me.toX, me.toY, a.toX, a.toY));
-      if (firePunch(pick.id, covered ? "REACT_FALLBACK" : "REACT", { bypassThrottle: true })) state.react.fired++;
+      if (firePunch(current.id, covered ? "REACT_FALLBACK" : "REACT", { bypassThrottle: true })) { fired = true; state.react.fired++; }
     };
     const t = now();
     const free = (state.lastPunch.at || -1e9) + GUARD_LOCK_MS + 1;
@@ -3475,7 +3495,7 @@
     const skip = (reason) => {
       E.stats.skipped++;
       E.stats.lastSkip = reason;
-      if (shot && shot.k === 0 && !shot.b && !shot.sweep && state.diagnostics.enabled) sendDiagnostic("tick_skip", { tick: plan.n, reason });
+      if (shot && state.diagnostics.enabled) sendDiagnostic("tick_skip", { tick: plan.n, index, reason, targetId: plan.burstTarget ?? -1 });
     };
     if (E.selfOut || t < E.pausedUntil) return skip(E.selfOut ? "eliminado" : "self_down");
     if (!shot) return;
@@ -3497,15 +3517,17 @@
       if (plan.burstTarget == null || plan.burstReactive) return;
       pick = { id: plan.burstTarget, reactive: false, score: plan.burstScore, repeat: true };
     } else if (shot.sweep) {
-      // Only after a blind first click: the runner-up at the sweep landing.
+      // Prefer the runner-up after a blind first click. If there is none, use
+      // this already scheduled slot only when the primary is still the best
+      // live candidate. The Launch recording otherwise left this window empty.
       if (plan.burstTarget == null || plan.burstReactive) return;
-      const second = threatPick(E.origin + plan.n * TICK_MS + phase, SWEEP_MIN_SCORE, plan.burstTarget);
+      const landing = E.origin + plan.n * TICK_MS + phase;
+      const second = threatPick(landing, SWEEP_MIN_SCORE, plan.burstTarget);
       if (!second) {
-        E.stats.skipped++;
-        E.stats.lastSkip = "sweep_none";
-        return;
-      }
-      pick = { id: second.id, reactive: false, score: second.score, face: second.face, sweep: true };
+        const primary = threatPick(landing, SWEEP_MIN_SCORE);
+        if (!primary || primary.id !== plan.burstTarget) return skip("sweep_none");
+        pick = { id: primary.id, reactive: false, score: primary.score, face: primary.face, sweep: true, retry: true };
+      } else pick = { id: second.id, reactive: false, score: second.score, face: second.face, sweep: true };
     } else if (shot.b > 0) {
       // Rest of the burst: same target and decision as its first request.
       if (plan.burstTarget == null) return;
@@ -3542,7 +3564,8 @@
     const faced = state.timing.tick.single && !E.selfOut ? faceBeforeClick(pick.face) : false;
     spinUntil(Number(msg.dueAt));
     const sentAt = now();
-    const ok = firePunch(pick.id, pick.repeat ? "TICK_REPEAT" : pick.sweep ? "TICK_SWEEP" : pick.reactive ? "TICK_REACT" : "TICK_BLIND", { bypassThrottle: true });
+    if (pick.retry && sentAt < (state.lastPunch.at || -1e9) + GUARD_LOCK_MS + 1) return skip("sweep_gap");
+    const ok = firePunch(pick.id, pick.retry ? "TICK_RETRY" : pick.repeat ? "TICK_REPEAT" : pick.sweep ? "TICK_SWEEP" : pick.reactive ? "TICK_REACT" : "TICK_BLIND", { bypassThrottle: true });
     if (ok && pick.repeat) state.tickAdv.repeats++;
     if (ok && pick.sweep) {
       E.sweepStats.fired++;
@@ -3581,7 +3604,7 @@
       `tick n=${plan.n} k=${shot.k} b=${shot.b} ${pick.reactive ? "react" : "blind"} score=${pick.score} corr=${Math.round(E.corr)}`,
       { window: "TICK", scheduler: "worker", tickPhase: phase, corrMs: Math.round(E.corr), rttMs: rttEstimateMs(), reactive: pick.reactive });
     sendDiagnostic("tick_fire", {
-      tick: plan.n, index, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, score: pick.score, ok, face: faced ? pick.face : 0,
+      tick: plan.n, index, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, retry: Boolean(pick.retry), score: pick.score, ok, face: faced ? pick.face : 0,
       lateMs: late, corrMs: E.corr, origin: E.origin, rttMs: rttEstimateMs(), burst: state.tickBurst, pre: plan.pre ? 1 : 0, preMs: plan.pre?.ms ?? null
     });
   }
@@ -5088,6 +5111,7 @@
         if (state.lab.running && attacker === selfId) state.lab.replies.push({ t, id: 211 });
         state.tickEngine.down.set(defender, t + 2500);
         state.tickEngine.out.add(defender);
+        state.tickEngine.outAvatars.set(defender, sceneRenderer()?.avatars?.get?.(defender) || null);
         hitLockNote(attacker, t, selfId);
         tickPreflightInvalidate();
         if (defender === selfId) state.tickEngine.selfOut = true;
@@ -6161,7 +6185,8 @@
   function isStale(id) {
     if (notRingSlot(id)) return true;
     const avatars = sceneRenderer()?.avatars;
-    return isStaleAvatar(avatars?.get?.(id) ?? avatars?.get?.(String(id)));
+    const avatar = avatars?.get?.(id) ?? avatars?.get?.(String(id));
+    return Boolean(avatar?.__departing) || isStaleAvatar(avatar);
   }
 
   function isAlly(id) {
@@ -6403,15 +6428,32 @@
   function refreshEliminated() {
     const E = state.tickEngine;
     if (!E.out.size) return;
+    // In Ring an eliminated ID remains a spectator for the entire round.
+    // Roster removal/replacement is not a server confirmation of revival.
+    if (inRingRoom()) return;
     const avatars = sceneRenderer()?.avatars;
     if (!(avatars instanceof Map)) return;
+    let changed = false;
     for (const id of E.out) {
       if (!avatars.has(id)) E.outGone.add(id);
-      else if (E.outGone.has(id)) {
+      else if (E.outGone.has(id) || (E.outAvatars.get(id) && E.outAvatars.get(id) !== avatars.get(id))) {
         E.out.delete(id);
         E.outGone.delete(id);
+        E.outAvatars.delete(id);
+        E.down.delete(id);
+        E.lockUntil.delete(id);
+        E.mutedUntil.delete(id);
+        E.silentCount.delete(id);
+        state.actors.delete(id);
+        if (id === inferSelfId()) {
+          E.selfOut = false;
+          E.pausedUntil = 0;
+        }
+        changed = true;
+        sendDiagnostic("island_reentry", { targetId: id });
       }
     }
+    if (changed) tickPreflightInvalidate();
   }
 
   function sendTick() {

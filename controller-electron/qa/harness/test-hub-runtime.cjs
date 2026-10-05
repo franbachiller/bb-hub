@@ -160,6 +160,7 @@ const api = context.__BBFlashRuntime;
     fixture.Socket.instance.handleReceivedBytes(resolve.toByteArray());
     const room = new fixture.Packet(128, 120);
     fixture.Socket.instance.handleReceivedBytes(room.toByteArray());
+    for (const [id, avatar] of [...fixture.Renderer.instance.avatars]) fixture.Renderer.instance.avatars.set(id, { ...avatar });
     const resync = new fixture.Packet(215);
     for (const v of [1, 100, 3, 0, 7, 120, 500]) resync.appendParameter(v);
     fixture.Socket.instance.handleReceivedBytes(resync.toByteArray());
@@ -828,6 +829,7 @@ const api = context.__BBFlashRuntime;
   assert.ok(api.status().stats.outHeld >= 2, "still out while spectating");
   context.time = T + 2500; inbound(160, 126, []); // round over: everyone back in play
   // Island: the eliminated player leaves the room and comes back in.
+  run("fixture.Renderer.instance.spaceModel.name = 'isla'");
   assert.equal(api.status().tick.selfOut, false, "round over: we are back in play");
   context.time = T + 2600; inbound(211, 0, [1, 1, 1, 10, 10, 1, 32, 12, 12]);
   assert.ok(api.status().tick.eliminated.includes(32));
@@ -839,6 +841,7 @@ const api = context.__BBFlashRuntime;
   avatars32.set(32, saved32); // walks back in
   context.time = T + 2800; tick();
   assert.ok(!api.status().tick.eliminated.includes(32), "back in play after re-entering");
+  run("fixture.Renderer.instance.spaceModel.name = 'mGame2'");
   api.onHubMessage({ type: "timing_config", enabled: false, source: "STEP" });
   run("fixture.Renderer.instance.avatars").delete(31);
   run("fixture.Renderer.instance.avatars").delete(32);
