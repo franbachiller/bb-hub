@@ -1,5 +1,28 @@
 # BB Hub — distribución Windows
 
+## 0.1.16 — Timing del 02/10 y respaldo en la salida de coco
+
+Preparada para distribuir; sin publicar en Cryptlex ni en el repositorio de
+instaladores. Runtime `05102026_html5_hub_v6_62_og_exit_backup`: las decisiones
+de Timing son las del v6_62 del 02/10 (sha256 normalizado 3fc2dabb...). Se
+retiran v6_63..v6_73 (0.1.7-0.1.12): reelección de contacto, objetivo automático
+en cada movimiento y bloqueo por `__departing`.
+
+- Salida de coco en modo "1 click": respaldo 105 ms después del primer golpe.
+  Final de Ring del 05/10: el único golpe se apuntó al fin estimado del coco, el
+  fin real llegó 42 ms después y el server lo ignoró; la reacción quedó retenida.
+  Silencios de salida: 0 de 81 del 01-03/10, 5 el 04-05/10.
+- El runtime envía `timing_target` con cada golpe automático: el Hub muestra el
+  objetivo al instante (antes, estado de 250-700 ms más refresco de UI).
+- El juego vuelve a correr con sus renderers en prioridad High (cada 15 s).
+
+Validación: 48 casos históricos del runtime, runtime-security, client-discovery,
+port-conflict, pro-hotkey-updater y avatares sobre el paquete. No se corrieron las
+regresiones de timing v6_68+ (prueban lo que se retira) ni las pruebas que abren
+el Hub empaquetado sobre el perfil en uso. Instalador sin firma, como los anteriores.
+Entrega: `../DISTRIBUCION/BB Hub 0.1.16 Windows x64.zip`; manifiesto
+`../docs/releases/0.1.16.json`.
+
 ## 0.1.12 oficial — reelección de contacto y avatares en retirada
 
 Durante la espera del intervalo de envío, la reacción conservaba el primer
