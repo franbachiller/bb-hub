@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "05102026_html5_hub_v6_62_og_max";
+  const BRIDGE_BUILD = "05102026_html5_hub_v6_62_og_exit_backup";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -4271,9 +4271,14 @@
     const X = state.exitMode;
     const s = state.tickEngine.auto.sigma;
     if (state.timing.tick.single) {
-      // One click just after the unlock (processed from E+5 in July).
+      // One click just after the unlock (processed from E+5 in July), plus a
+      // backup after the server gap. 05/10 Ring final: the only exit click
+      // landed a hair before the unlock (no 144, no 211), the reaction was held
+      // because it landed inside the coco, and the rival waiting at the edge hit
+      // at E+230 with nothing of ours in between.
       const lead = -Math.max(6, Math.round(s));
-      return { shots: [{ phase: Math.round(X.U - lead), k: 0, b: 0 }], lead, gap: 3, count: 1 };
+      const first = Math.round(X.U - lead);
+      return { shots: [{ phase: first, k: 0, b: 0 }, { phase: first + GUARD_LOCK_MS + 5, k: 1, b: 0 }], lead, gap: 3, count: 1 };
     }
     // Up to 8 requests spread over U - lead .. U + lead (+6 ms of slack).
     const lead = Math.max(4, Math.round(1.5 * s));
@@ -4353,6 +4358,21 @@
     if (!plan || plan.done || `EXIT:${Math.round(plan.endAt)}` !== String(msg.planId || "")) return;
     const shot = plan.shots[msg.index | 0];
     if (!shot) return;
+    if (shot.k > 0 && plan.target != null) {
+      // Follow-up: not after our hit (we are in the punch animation), and at
+      // whoever is the threat now if the first target left or went down.
+      if (plan.replies.some((r) => r.kind === "hit") || state.tickEngine.selfOut) return;
+      const E = state.tickEngine;
+      const landing = now() + rttEstimateMs() + E.corr;
+      const me = ensureActorFromRenderer(inferSelfId());
+      const a = ensureActorFromRenderer(plan.target);
+      const stillThere = me && a && !E.out.has(plan.target) && !rivalLocked(plan.target, landing) && lateralAdjacent(me.toX, me.toY, a.toX, a.toY);
+      if (!stillThere) {
+        const again = exitPickTarget(landing);
+        if (again == null) return;
+        plan.target = again;
+      }
+    }
     if (plan.target == null) {
       // Judged when our coco ends: a rival stunned with us wakes up with us.
       plan.target = exitPickTarget(Math.max(plan.endAt + shot.phase, plan.endAt + 25));
@@ -4445,7 +4465,12 @@
     }
     plan.done = true;
     const burst = plan.sent.filter((s) => s.ok && s.phase < X.U + 90);
-    const first = plan.replies.slice().sort((a, b) => a.p - b.p)[0] || null;
+    // The single-mode backup lands at U+111: its replies say nothing about U.
+    // A reject answers on landing (< U+90); a hit of the first click comes after
+    // its hold (50-160 ms), a hit of the backup not before U+160.
+    const first = plan.replies
+      .filter((r) => (r.kind === "reject" ? r.p < X.U + 90 : r.p < X.U + 160))
+      .sort((a, b) => a.p - b.p)[0] || null;
     if (!plan.sent.length) return;
     if (first) X.processed++;
     else X.silent++;
