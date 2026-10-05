@@ -9,7 +9,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
+const { spawn, execFile } = require("node:child_process");
 const { EventEmitter } = require("node:events");
 const { safeStorage } = require("electron");
 const { HubBridge } = require("./hub-bridge.cjs");
@@ -24,6 +24,19 @@ const GAME_FRAME_RE = /static\.boombang\.tv\/betahtml5/;
 const RING_SCENE_PATH = path.join(__dirname, "ring_scene.page.js");
 const RUNTIME_PATH = path.join(__dirname, "flash_runtime.page.js");
 const AVATAR_MAX_CHARS = 600000;
+// The game's renderers (page + game frame, where the runtime and its timing
+// worker run) at High and the rest of the client above normal, so packet
+// dispatch and the tick never queue behind other programs. Reapplied while
+// the game is connected: Windows or the client can lower it again.
+const PRIORITY_EVERY_MS = 15000;
+const PRIORITY_PS = `
+$ErrorActionPreference = "SilentlyContinue"
+Get-CimInstance Win32_Process -Filter "Name='BoomBangHTML5.exe'" | ForEach-Object {
+  $p = Get-Process -Id $_.ProcessId
+  if (-not $p) { return }
+  $want = if ([string]$_.CommandLine -match '--type=renderer') { 'High' } else { 'AboveNormal' }
+  if ($p.PriorityClass.ToString() -ne $want) { $p.PriorityClass = $want }
+}`;
 // Read the game's existing portrait; never bake sprites or touch combat state.
 // Retry from the Hub until the asynchronous FlowerPower image is loaded, then
 // stop. A blob URL only exists inside the game, so send its bytes as a data URL.
@@ -470,6 +483,7 @@ class GameLauncher extends EventEmitter {
     this.setState("ready", "Juego conectado.");
     if (this.diagnostics) await this.applyDiagnostics();
     this.startAvatarRead();
+    this.startPriorityBoost();
 
     const closed = () => {
       if (this.state !== "ready") return;
@@ -492,6 +506,26 @@ class GameLauncher extends EventEmitter {
       }
     };
     void poll();
+  }
+
+  startPriorityBoost() {
+    this.stopPriorityBoost();
+    if (process.platform !== "win32") return;
+    const boost = () => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", PRIORITY_PS],
+      { windowsHide: true, timeout: 10000 }, (error) => {
+        if (error && !this.priorityWarned) {
+          this.priorityWarned = true;
+          this.log(`Juego: no se pudo subir la prioridad: ${error.message}`);
+        }
+      });
+    boost();
+    this.priorityTimer = setInterval(boost, PRIORITY_EVERY_MS);
+    this.priorityTimer.unref?.();
+  }
+
+  stopPriorityBoost() {
+    clearInterval(this.priorityTimer);
+    this.priorityTimer = null;
   }
 
   stopAvatarRead() {
@@ -535,6 +569,7 @@ class GameLauncher extends EventEmitter {
   // game stays open; it reconnects when the Hub opens again.
   async teardown(closeGame) {
     this.stopAvatarRead();
+    this.stopPriorityBoost();
     await this.closeRecorder();
     this.gameFrame = null;
     try { this.bridge?.stop(); } catch {}
@@ -552,6 +587,7 @@ class GameLauncher extends EventEmitter {
 
   stop() {
     this.stopAvatarRead();
+    this.stopPriorityBoost();
     void this.closeRecorder();
     try { this.bridge?.stop(); } catch {}
     this.bridge = null;

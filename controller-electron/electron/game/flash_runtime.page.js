@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "05102026_html5_hub_v6_62_og_restore";
+  const BRIDGE_BUILD = "05102026_html5_hub_v6_62_og_max";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -1493,7 +1493,11 @@
   function notePunch(targetId, reason) {
     // Report only (Hub "Último disparo de Timing"): no decision reads it.
     if (reason && !["native", "CTRL", "manual"].includes(reason)) {
+      const changed = state.lastAutomaticPunch?.targetId !== (targetId | 0);
       state.lastAutomaticPunch = { targetId: targetId | 0, reason, at: Math.round(now()) };
+      // The request is already on the socket: tell the Hub now instead of with
+      // the next state (250-700 ms), so its target field follows the engine.
+      if (changed) sendToHub({ type: "timing_target", targetId: targetId | 0, reason });
     }
     const self = ensureActorFromRenderer(inferSelfId());
     const target = ensureActorFromRenderer(targetId);
