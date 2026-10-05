@@ -757,6 +757,13 @@ class ControllerCore extends EventEmitter {
       this.pushRingBoardSensors(data);
       return;
     }
+    if (type === "timing_target") {
+      // Sent by the runtime as each automatic punch leaves: the UI target field
+      // follows the engine without waiting for the next state.
+      this.tick = { ...(this.tick || normalizeTickStatus({})), lastTargetId: safeInt(data.targetId, -1), lastTargetReason: String(data.reason || "").slice(0, 32) };
+      this.emitSnapshot(true);
+      return;
+    }
     if (type === "scene_snapshot") {
       this.updateServerPing(data);
       this.noteSwfClock(data);
