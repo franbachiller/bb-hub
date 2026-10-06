@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import logoUrl from "../electron/assets/icon.png";
-import { AlertTriangle, ArrowUpRight, ArrowRight, Check, Crosshair, Gauge, Grid2X2, ListFilter, RotateCcw, ScrollText, ShieldCheck, Square, Target, Trash2, UserPlus, Users, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, ArrowRight, Check, Crosshair, Gauge, Grid2X2, ListFilter, RotateCcw, ScrollText, ShieldCheck, Smile, Square, Target, Trash2, UserPlus, Users, X, Zap } from "lucide-react";
 import { createDemoApi } from "./demo.js";
 
 const fallbackSnapshot = {
@@ -109,6 +109,7 @@ const stubApi = {
   applyFreeFire: async () => {},
   setAllies: async () => {},
   toggleAlly: async () => {},
+  applySimon: async () => {},
   addAllyByName: async () => {},
   removeAlly: async () => {},
   getPortraits: async () => ({}),
@@ -146,6 +147,7 @@ const navItems = [
   { id: "dropHunter", label: "Drops", icon: Crosshair },
   { id: "players", label: "Jugadores", icon: Users },
   { id: "allies", label: "Aliados", icon: ShieldCheck },
+  { id: "simon", label: "Simon Dice", icon: Smile },
   { id: "logs", label: "Registro", icon: ScrollText }
 ];
 
@@ -262,6 +264,7 @@ function App() {
           {activeTab === "dropHunter" && <DropHunterView {...context} />}
           {activeTab === "players" && <PlayersView {...context} />}
           {activeTab === "allies" && <AlliesView {...context} />}
+          {activeTab === "simon" && <SimonView {...context} />}
           {activeTab === "logs" && <LogsView logs={snapshot.logs || []} runAction={runAction} />}
         </main>
       </div>
@@ -553,6 +556,44 @@ function RequeueKeyRow({ snapshot, runAction }) {
     </div>
   </Setting>;
 }
+// Simon Dice (06/10): the runtime reads each cartel and touches the asked face.
+const SIMON_DELAYS = [[0, "Al instante"], [150, "150 ms"], [300, "300 ms"], [600, "600 ms"]];
+function SimonView({ snapshot, runAction }) {
+  const simon = snapshot.simon || { enabled: false, delayMs: 0, status: null };
+  const st = simon.status;
+  const last = st?.last;
+  const on = simon.enabled === true;
+  const state = !on ? "Apagado" : !snapshot.connected ? "Esperando el juego" : st?.inRoom ? "Jugando" : "Listo";
+  const tone = !on ? "muted" : !snapshot.connected ? "warn" : "good";
+  const lastText = !last ? "Todavía no hubo carteles." : last.error ? `Ronda ${last.round}: no se pudo leer el cartel (${last.error}).` : last.go === false ? `Ronda ${last.round}: banda roja, no tocó nada.` : `Ronda ${last.round}: tocó la casilla ${(last.cell ?? 0) + 1} de 8${last.totalMs != null ? ` en ${last.totalMs} ms` : ""}.`;
+  return <>
+    <PageHeading title="Simon Dice" description="Lee cada cartel y toca la cara pedida. Con la banda roja a rayas no toca nada." />
+    <section className="section" aria-labelledby="simon-title">
+      <div className="master">
+        <div><span className="master-label">Simon Dice automático</span><b className={`master-state tone-${tone}`}>{state}</b></div>
+        <Toggle label="Activar Simon Dice automático" checked={on} onChange={(checked) => runAction(() => api.applySimon({ enabled: checked }))} large tone="ember" />
+      </div>
+      <div className="spec">
+        <Setting title="Espera antes de tocar" text="Al instante gana el duelo final, donde cae el más lento. Con espera se ve más humano; cada ronda da menos tiempo (de 6 s a ~1 s)." stack>
+          <div className="segmented" role="group" aria-label="Espera antes de tocar">{SIMON_DELAYS.map(([v, label]) => <button key={v} className={`seg ${(simon.delayMs || 0) === v ? "is-on" : ""}`} aria-pressed={(simon.delayMs || 0) === v} onClick={() => runAction(() => api.applySimon({ delayMs: v }))}>{label}</button>)}</div>
+        </Setting>
+        <Setting title="Timing en Simon" text="En la sala de Simon el Timing no manda golpes, para no pegarle a los demás en plena partida." />
+      </div>
+    </section>
+    <section className="section" aria-labelledby="simon-stats-title">
+      <h2 id="simon-stats-title" className="section-title">Esta sesión <span className="section-meta">{st?.inRoom ? "en la sala de Simon" : "fuera de la sala"}</span></h2>
+      <dl className="readout">
+        <div><dt>Partidas</dt><dd className="num">{st?.games ?? 0}</dd></div>
+        <div><dt>Caras tocadas</dt><dd className="num">{st?.answered ?? 0}</dd></div>
+        <div><dt>Rojas sin tocar</dt><dd className="num">{st?.skippedRed ?? 0}</dd></div>
+        <div><dt>Victorias</dt><dd className="num">{st?.wins ?? 0}</dd></div>
+        <div><dt>Errores de lectura</dt><dd className={`num ${st?.errors ? "is-warn" : ""}`}>{st?.errors ?? 0}</dd></div>
+      </dl>
+      <p className="note">{lastText}</p>
+    </section>
+  </>;
+}
+
 // Allies (06/10): the players the bot never punches live in their own view.
 function allyLabel(ally) { return ally.name || `Cuenta ${ally.accountId}`; }
 function AlliesRow({ snapshot, setActiveTab }) {

@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("ringController", {
   applyStepWalk: (payload) => ipcRenderer.invoke("controller:applyStepWalk", payload),
   applyFreeFire: (payload) => ipcRenderer.invoke("controller:applyFreeFire", payload),
   setAllies: (value) => ipcRenderer.invoke("controller:setAllies", value),
+  applySimon: (payload) => ipcRenderer.invoke("controller:applySimon", payload),
   toggleAlly: (value) => ipcRenderer.invoke("controller:toggleAlly", value),
   addAllyByName: (name) => ipcRenderer.invoke("controller:addAllyByName", name),
   removeAlly: (value) => ipcRenderer.invoke("controller:removeAlly", value),
