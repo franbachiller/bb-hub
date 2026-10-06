@@ -255,6 +255,27 @@ function normalizeAdvanced(value) {
 // (typed by hand, or saved by the old comma list) matches by exact name until
 // that player shows up in a room, then it is bound to the account.
 const ALLIES_MAX = 100;
+function normalizeSimon(value) {
+  const v = value && typeof value === "object" ? value : {};
+  return { enabled: v.enabled === true, delayMs: clamp(safeInt(v.delayMs, 0), 0, 2000) };
+}
+
+function normalizeSimonStatus(raw) {
+  const n = (v) => Math.max(0, safeInt(v, 0));
+  const last = raw.last && typeof raw.last === "object" ? {
+    round: n(raw.last.round), timeMs: n(raw.last.timeMs), go: raw.last.go === true ? true : raw.last.go === false ? false : null,
+    cell: Number.isInteger(raw.last.cell) ? raw.last.cell : null, conf: Number.isFinite(Number(raw.last.conf)) ? Number(raw.last.conf) : null,
+    readMs: Number.isFinite(Number(raw.last.readMs)) ? Number(raw.last.readMs) : null,
+    totalMs: Number.isFinite(Number(raw.last.totalMs)) ? Number(raw.last.totalMs) : null,
+    error: raw.last.error ? String(raw.last.error).slice(0, 80) : ""
+  } : null;
+  return {
+    inRoom: raw.inRoom === true, games: n(raw.games), rounds: n(raw.rounds), answered: n(raw.answered),
+    skippedRed: n(raw.skippedRed), errors: n(raw.errors), wins: n(raw.wins), punchesHeld: n(raw.punchesHeld),
+    sender: String(raw.sender || ""), last
+  };
+}
+
 function normalizeAllies(value) {
   const list = Array.isArray(value) ? value : String(value || "").split(",");
   const out = [];
@@ -547,6 +568,10 @@ class ControllerCore extends EventEmitter {
     // EXPERIMENTAL "disparo libre" (02/10): el tick ignora el espaciado interno de
     // ~100 ms y dispara continuo en toda la ventana. OFF por defecto (es para medir).
     this.freeFire = saved.freeFire === true;
+    // Simon Dice (06/10): the runtime reads each cartel and touches the asked
+    // face (never on a red band). Off by default; delayMs = wait before touching.
+    this.simon = normalizeSimon(saved.simon);
+    this.simonStatus = null;
   }
 
   start() {
@@ -620,6 +645,7 @@ class ControllerCore extends EventEmitter {
         advanced: this.advanced,
         requeueKey: this.requeueKey || "",
         freeFire: this.freeFire === true,
+        simon: this.simon,
         moveDelay: { delayMs: this.moveDelay.delayMs, minMoveMs: this.moveDelay.minMoveMs },
         dropHunter: { autoClaim: this.dropHunter.autoClaim },
         exit: { enabled: this.exitMode.enabled, punch: this.exitMode.punch },
@@ -757,6 +783,7 @@ class ControllerCore extends EventEmitter {
     setTimeout(() => this.pushAdvanced(), 220);
     setTimeout(() => this.pushRequeueKey(), 230);
     setTimeout(() => this.sendToSwf({ type: "free_fire_config", enabled: this.freeFire === true }), 235);
+    setTimeout(() => this.pushSimon(), 245);
     setTimeout(() => this.pushDesiredConfig(true), 220);
     this.emitSnapshot();
   }
@@ -776,6 +803,7 @@ class ControllerCore extends EventEmitter {
       this.noteSwfClock(data);
       this.updatePlayers(Array.isArray(data.players) ? data.players : []);
       if (this.allies.some((a) => !a.accountId)) this.bindAllyNames();
+      if (data.simon && typeof data.simon === "object") this.simonStatus = normalizeSimonStatus(data.simon);
       if (data.tick) {
         this.tick = normalizeTickStatus(data.tick);
       }
@@ -1198,6 +1226,19 @@ class ControllerCore extends EventEmitter {
     this.sendToSwf({ type: "step_walk_config", enabled: this.stepWalk });
     this.log(`Caminar paso a paso -> ${this.stepWalk ? "ON" : "OFF"}`);
     this.emitSnapshot();
+    return true;
+  }
+
+  pushSimon() {
+    this.sendToSwf({ type: "simon_config", enabled: this.simon.enabled, delayMs: this.simon.delayMs });
+  }
+
+  applySimon(payload = {}) {
+    this.simon = normalizeSimon({ ...this.simon, ...(payload || {}) });
+    this.persistSettings();
+    this.pushSimon();
+    this.log(`Simon Dice -> ${this.simon.enabled ? "ON" : "OFF"}${this.simon.delayMs ? ` (espera ${this.simon.delayMs} ms)` : ""}`);
+    this.emitSnapshot(true);
     return true;
   }
 
@@ -2073,6 +2114,7 @@ class ControllerCore extends EventEmitter {
       advanced: this.advanced,
       requeueKey: this.requeueKey || "",
       freeFire: this.freeFire === true,
+      simon: { ...this.simon, status: this.simonStatus },
       combat: this.combat,
       moveDelay: this.moveDelay,
       dropHunter: this.dropHunter,

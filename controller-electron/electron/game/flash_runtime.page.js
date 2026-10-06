@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "06102026_html5_hub_v6_62_og_allies";
+  const BRIDGE_BUILD = "06102026_html5_hub_v6_62_og_simon";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -141,6 +141,7 @@
     // cooldown. El hueco de 100 ms del SERVER sigue existiendo (los tiros de mas
     // se dropean), asi que PUEDE rendir peor: es para medir. OFF por defecto.
     freeFire: { enabled: false, gapMs: 25 },
+    simon: { enabled: false, delayMs: 0, rooms: new Set(), roomsLoaded: false, sendName: "", games: 0, rounds: 0, answered: 0, skippedRed: 0, errors: 0, wins: 0, punchesHeld: 0, last: null },
     stateCfg: {
       enabled: false,
       delay: 0
@@ -1014,6 +1015,7 @@
       serverPingMs: state.serverPingMs,
       players: collectPlayers(),
       tick: tickHubSummary(),
+      simon: simonSummary(),
       exit: exitSummary(),
       ts: Math.round(now())
     });
@@ -1519,6 +1521,8 @@
     if (id == null || id < 0) id = selectedId();
     if (id == null || id < 0 || id === inferSelfId()) return false;
     if (isAlly(id)) { state.allies.blocked++; return false; }
+    // Simon Dice rooms: no automatic punches (they hit the others mid-game).
+    if (!["CTRL", "manual"].includes(reason) && simonRoomActive()) { state.simon.punchesHeld++; return false; }
     const upper = providerInstance(state.providers.upper);
     if (!upper || typeof upper.upperRequest !== "function") return false;
     noThrottleInstall();
@@ -5011,6 +5015,7 @@
     // The start gong is the one followed by 160/130 [N, 300]; the end gong by
     // 160/129. softReset stays for both (state hygiene); roundStartNote waits
     // for the 300 confirmation (or a 250 ms fallback).
+    simonOnPacket(packet, direction);
     if (packet.id === 160 && packet.type === 126) {
       softResetCombat("room_126");
       if (direction === "in") {
@@ -5490,6 +5495,10 @@
         if ("sweep" in msg) state.tickAdv.sweep = Boolean(msg.sweep);
         if ("repeatMs" in msg) state.tickAdv.repeatMs = Number(msg.repeatMs) > 0 ? clamp(Number(msg.repeatMs), 100, 400) : 0;
         sendConfig();
+        break;
+      case "simon_config":
+        if ("enabled" in msg) state.simon.enabled = Boolean(msg.enabled);
+        if ("delayMs" in msg) state.simon.delayMs = clamp(Number(msg.delayMs) || 0, 0, 2000);
         break;
       case "free_fire_config":
         // EXPERIMENTAL: disparo libre del tick (ignora el espaciado interno de ~100 ms).
@@ -6173,6 +6182,254 @@
     return Boolean(name) && A.names.has(name);
   }
 
+  // ---- Simon Dice (06/10) -------------------------------------------------------
+  // The server shows a cartel as an image: 160/143 [round, timeMs, webp base64]
+  // (then 160/143 [0, ...] clears it). Top band: the asked face; green with a
+  // tick = touch it, red striped with the face crossed = touch nothing. Below,
+  // the 8 faces shuffled per player (4 x 2). A touch is 160/143/122 [round, cell]
+  // with cell 0..7 by rows. Each round gives less time and the final duel drops
+  // the slowest, so the answer leaves as soon as the cartel is read.
+  // Automatic punches are held in rooms where a Simon cartel was seen.
+  const SIMON_ROOMS_KEY = "bbhub.simonRooms.v1";
+  function simonRoomName() {
+    return String(sceneRenderer()?.spaceModel?.name || "");
+  }
+  function simonRoomsLoad() {
+    const S = state.simon;
+    if (S.roomsLoaded) return;
+    S.roomsLoaded = true;
+    try {
+      const saved = JSON.parse(window.localStorage?.getItem(SIMON_ROOMS_KEY) || "[]");
+      if (Array.isArray(saved)) for (const r of saved) if (r) S.rooms.add(String(r));
+    } catch {}
+  }
+  function simonRoomActive() {
+    simonRoomsLoad();
+    const room = simonRoomName();
+    return Boolean(room) && state.simon.rooms.has(room);
+  }
+  function simonNoteRoom() {
+    simonRoomsLoad();
+    const room = simonRoomName();
+    if (!room || state.simon.rooms.has(room)) return;
+    state.simon.rooms.add(room);
+    try { window.localStorage?.setItem(SIMON_ROOMS_KEY, JSON.stringify([...state.simon.rooms].slice(-20))); } catch {}
+  }
+
+  // The game's own sender of 160/143/122 (its method takes round and cell).
+  function simonSendFn() {
+    const S = state.simon;
+    const inst = providerInstance(state.providers.game);
+    if (!inst) return null;
+    if (S.sendName && typeof inst[S.sendName] === "function") return (round, cell) => inst[S.sendName](round, cell);
+    // The client names it simonAnswerRequest(round, cell) (06/10); fall back to its body if renamed.
+    if (typeof inst.simonAnswerRequest === "function") { S.sendName = "simonAnswerRequest"; return (round, cell) => inst.simonAnswerRequest(round, cell); }
+    for (let proto = Object.getPrototypeOf(inst); proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
+      for (const name of Object.getOwnPropertyNames(proto)) {
+        let fn = null;
+        try { fn = proto[name]; } catch {}
+        if (typeof fn !== "function" || name === "constructor") continue;
+        let src = "";
+        try { src = Function.prototype.toString.call(fn); } catch {}
+        if (/160\s*,\s*143\s*,\s*122\b/.test(src)) { S.sendName = name; return (round, cell) => inst[name](round, cell); }
+      }
+    }
+    return null;
+  }
+  function simonSend(round, cell) {
+    const viaGame = simonSendFn();
+    if (viaGame) { viaGame(round, cell); return "game"; }
+    const P = state.providers.packet?.exported;
+    const socket = providerInstance(state.providers.socket);
+    if (!P || !socket) return "";
+    const pk = new P(160, 143, 122);
+    pk.appendParameter(round);
+    pk.appendParameter(cell);
+    socket.sendServerMessage(pk);
+    return "raw";
+  }
+
+  async function simonOnCartel(fields) {
+    const S = state.simon;
+    const round = Number(fields[0]);
+    const timeMs = Number(fields[1]);
+    const b64 = String(fields[2] || "");
+    if (!(round > 0) || !b64) return;
+    simonNoteRoom();
+    if (round === 1) S.games++;
+    S.rounds++;
+    if (!S.enabled) return;
+    const t0 = now();
+    let result;
+    try {
+      const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+      const bmp = await createImageBitmap(new Blob([bytes], { type: "image/webp" }));
+      const canvas = new OffscreenCanvas(bmp.width, bmp.height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(bmp, 0, 0);
+      const img = ctx.getImageData(0, 0, bmp.width, bmp.height);
+      result = simonSolve(img.data, bmp.width, bmp.height);
+    } catch (error) {
+      S.errors++;
+      S.last = { round, timeMs, error: String(error?.message || error).slice(0, 80), at: Math.round(now()) };
+      sendDiagnostic("simon", S.last);
+      return;
+    }
+    const readMs = Math.round((now() - t0) * 10) / 10;
+    if (result.error) {
+      S.errors++;
+      S.last = { round, timeMs, error: result.error, readMs, at: Math.round(now()) };
+      sendDiagnostic("simon", S.last);
+      return;
+    }
+    if (!result.go) {
+      S.skippedRed++;
+      S.last = { round, timeMs, go: false, readMs, at: Math.round(now()) };
+      sendDiagnostic("simon", S.last);
+      return;
+    }
+    const fire = () => {
+      let via = "";
+      try { via = simonSend(round, result.cell); } catch (error) { via = ""; }
+      if (via) S.answered++; else S.errors++;
+      S.last = { round, timeMs, go: true, cell: result.cell, conf: result.conf, readMs, totalMs: Math.round(now() - t0), via, at: Math.round(now()) };
+      sendDiagnostic("simon", S.last);
+    };
+    const delay = clamp(S.delayMs | 0, 0, 2000);
+    if (delay > 0) setTimeout(fire, delay); else fire();
+  }
+
+  function simonOnPacket(packet, direction) {
+    if (direction !== "in" || packet.id !== 160) return;
+    const f = packet.fields || [];
+    if (packet.type === 143 && f[2]) { void simonOnCartel(f); return; }
+    // 160/129 [_, accountId, name, prize]: the game's winner.
+    if (packet.type === 129 && simonRoomActive() && Number(f[1]) === selfAccountId()) state.simon.wins++;
+  }
+
+  function simonSummary() {
+    const S = state.simon;
+    return {
+      enabled: S.enabled, delayMs: S.delayMs, inRoom: simonRoomActive(), games: S.games, rounds: S.rounds,
+      answered: S.answered, skippedRed: S.skippedRed, errors: S.errors, wins: S.wins,
+      punchesHeld: S.punchesHeld, sender: S.sendName ? "game" : "", last: S.last
+    };
+  }
+
+  // Simon Dice cartel solver (prototype, runs in the game page).
+  // Input: RGBA pixels of the cartel (a band with the asked face on top, a 4x2
+  // grid of shuffled faces below). Output: { go, cell, conf, ... }.
+  // The grid faces change size and position per cell and the grid background
+  // carries noise specks, so faces are compared after cropping each one to its
+  // own bounding box and resampling to a fixed size.
+  function simonSolve(px, w, h) {
+    const at = (x, y) => (y * w + x) * 4;
+    const rgb = (x, y) => { const i = at(x, y); return [px[i], px[i + 1], px[i + 2]]; };
+    // Band: from the top until the first row that looks like the beige grid.
+    const isBeige = ([r, g, b]) => r > 200 && g > 190 && b > 170 && r - b < 45 && Math.abs(r - g) < 25;
+    let bandH = 0;
+    for (let y = 0; y < h; y++) {
+      let beige = 0;
+      for (let x = 0; x < w; x += 4) if (isBeige(rgb(x, y))) beige++;
+      if (beige > (w / 4) * 0.6) { bandH = y; break; }
+    }
+    if (bandH < 20) return { error: "no_band" };
+    // Band colour from its left edge (never under the face).
+    let gr = 0, rd = 0;
+    for (let y = 4; y < bandH - 4; y += 2) for (let x = 2; x < Math.min(40, w); x += 2) {
+      const [r, g, b] = rgb(x, y);
+      if (g > r + 30 && g > b) gr++;
+      else if (r > g + 40 && r > b + 20) rd++;
+    }
+    const go = gr > rd * 2;
+    if (!go) return { go: false, bandH, green: gr, red: rd };
+
+    // Asked face: in the band, left of the white tick circle (right ~45%).
+    const bandRef = (() => { let n = 0, s = [0, 0, 0]; for (let y = 4; y < bandH - 4; y++) for (let x = 2; x < 30; x++) { const c = rgb(x, y); s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; n++; } return s.map((v) => v / n); })();
+    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    // Face pixels: saturated. In the band also far from the band's own green
+    // (the fart cloud is a much lighter green); the band crop stops before the tick.
+    const faceLike = ([r, g, b]) => Math.max(r, g, b) - Math.min(r, g, b) > 55;
+    const target = crop(Math.round(w * 0.22), 4, Math.round(w * 0.52), bandH - 4, (c) => faceLike(c) && dist(c, bandRef) > 60);
+    if (!target) return { go: true, error: "no_target_face", bandH };
+
+    // Grid cells: 4 columns x 2 rows below the band.
+    const cells = [];
+    const gh = h - bandH;
+    for (let row = 0; row < 2; row++) for (let col = 0; col < 4; col++) {
+      const x0 = Math.round((col * w) / 4) + 3, x1 = Math.round(((col + 1) * w) / 4) - 3;
+      const y0 = bandH + Math.round((row * gh) / 2) + 3, y1 = bandH + Math.round(((row + 1) * gh) / 2) - 3;
+      // Face pixels: saturated (the beige background and its specks are not).
+      cells.push(crop(x0, y0, x1, y1, faceLike));
+    }
+    const scores = cells.map((c) => (c ? compare(target, c) : Infinity));
+    const order = scores.map((s, i) => [s, i]).sort((a, b) => a[0] - b[0]);
+    const best = order[0], second = order[1];
+    return { go: true, cell: best[1], score: +best[0].toFixed(1), conf: +(second[0] / Math.max(1e-6, best[0])).toFixed(2), scores: scores.map((s) => +s.toFixed(1)), bandH };
+
+    // Bounding box of the matching pixels, resampled to N x N RGB + mask.
+    function crop(x0, y0, x1, y1, isFace) {
+      let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
+      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (isFace(rgb(x, y))) {
+        if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+      if (maxX < 0 || maxX - minX < 6 || maxY - minY < 6) return null;
+      const N = 20, out = new Float32Array(N * N * 4);
+      const dark = new Float32Array(N * N); // eyes and mouth: dark strokes inside the face
+      const bw = maxX - minX + 1, bh = maxY - minY + 1, side = Math.max(bw, bh);
+      const cx = minX + bw / 2, cy = minY + bh / 2;
+      for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+        let s = [0, 0, 0], m = 0, n = 0, d = 0;
+        for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) {
+          const x = Math.floor(cx - side / 2 + ((i + (dx + 0.5) / 2) * side) / N);
+          const y = Math.floor(cy - side / 2 + ((j + (dy + 0.5) / 2) * side) / N);
+          n++;
+          if (x < x0 || x >= x1 || y < y0 || y >= y1) continue;
+          const c = rgb(x, y);
+          if (isFace(c)) { s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; m++; }
+          else if (Math.max(c[0], c[1], c[2]) < 120) d++;
+        }
+        const k = (j * N + i) * 4;
+        out[k] = m ? s[0] / m : 0; out[k + 1] = m ? s[1] / m : 0; out[k + 2] = m ? s[2] / m : 0; out[k + 3] = m / n;
+        dark[j * N + i] = d / n;
+      }
+      out.dark = dark;
+      // Colour mix of the whole face (scale-free): 4 levels per channel.
+      const hist = new Float32Array(64);
+      let total = 0;
+      for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
+        const c = rgb(x, y);
+        if (!isFace(c)) continue;
+        hist[(c[0] >> 6) * 16 + (c[1] >> 6) * 4 + (c[2] >> 6)]++;
+        total++;
+      }
+      for (let i = 0; i < 64; i++) hist[i] /= total || 1;
+      out.hist = hist;
+      return out;
+    }
+
+    // Mean colour distance over the union of both masks (+ mask mismatch).
+    function compare(a, b) {
+      let sum = 0, n = 0;
+      for (let k = 0; k < a.length; k += 4) {
+        const ma = a[k + 3], mb = b[k + 3];
+        if (ma < 0.25 && mb < 0.25) continue;
+        n++;
+        if (ma >= 0.25 && mb >= 0.25) sum += Math.hypot(a[k] - b[k], a[k + 1] - b[k + 1], a[k + 2] - b[k + 2]);
+        else sum += 160;
+      }
+      if (!n) return Infinity;
+      let h = 0;
+      for (let i = 0; i < 64; i++) h += Math.abs(a.hist[i] - b.hist[i]);
+      // Shape/colour per pixel + overall colour mix (0..2, weighted).
+      let dk = 0;
+      for (let i = 0; i < a.dark.length; i++) dk += Math.abs(a.dark[i] - b.dark[i]);
+      // Shape/colour per pixel + overall colour mix + eyes/mouth strokes.
+      return sum / n + 40 * h + 400 * (dk / a.dark.length);
+    }
+  }
+
+
   // ---- Portraits for the Hub's ally list (06/10) -------------------------------
   // The keko as the room draws it, rendered by the game's own PIXI renderer.
   // Called by the Hub launcher (never by the combat path), one avatar per call.
@@ -6589,6 +6846,7 @@
       lowPing: { mode: state.lowPing.mode, active: lowPingActive(), skipped: state.lowPing.skipped },
       noThrottle: { enabled: state.noThrottle.enabled, installed: state.noThrottle.installed, sends: state.noThrottle.skipped },
       tickAdv: { sweep: state.tickAdv.sweep, repeatMs: state.tickAdv.repeatMs, repeats: state.tickAdv.repeats, burst: state.tickBurst },
+      simon: simonSummary(),
       freeFire: { enabled: state.freeFire.enabled, gapMs: state.freeFire.gapMs },
       stale: { remembered: staleCount, listed: (() => { let n = 0; const av = sceneRenderer()?.avatars; if (av instanceof Map) for (const a of av.values()) if (isStaleAvatar(a)) n++; return n; })(), outOfRing: (() => { let n = 0; const av = sceneRenderer()?.avatars; if (av instanceof Map) for (const k of av.keys()) if (notRingSlot(asId(k))) n++; return n; })() },
       emotes: { enabled: state.emotes.enabled, sent: state.emotes.sent, skipped: state.emotes.skipped, last: state.emotes.last, provider: Boolean(providerInstance(state.providers.action)) },

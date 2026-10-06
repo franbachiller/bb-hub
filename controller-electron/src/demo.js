@@ -67,6 +67,7 @@ function buildSnapshot(base) {
     exit: { cocoActive: false, cocoRemainingMs: 0 },
     stepWalk: true,
     allies: [{ accountId: 771032, name: "Flee" }, { accountId: null, name: "amigo, con coma" }],
+    simon: { enabled: true, delayMs: 0, status: { inRoom: true, games: 2, rounds: 9, answered: 7, skippedRed: 2, errors: 0, wins: 1, punchesHeld: 3, sender: "game", last: { round: 6, timeMs: 1200, go: true, cell: 4, conf: 1.3, readMs: 4.1, totalMs: 6 } } },
     autoRun: false,
     emotes: true,
     advanced: { burst: 5, repeatMs: 0, sweep: true, reactive: true },
@@ -129,6 +130,7 @@ export function createDemoApi(base) {
     applyExit: async () => {},
     applyStepWalk: patch(({ enabled }) => { snap.stepWalk = enabled; }),
     setAllies: patch((value) => { snap.allies = String(value).split(",").map((s) => s.trim()).filter(Boolean).map((name) => ({ accountId: null, name })); }),
+    applySimon: patch((payload) => { snap.simon = { ...(snap.simon || { enabled: false, delayMs: 0 }), ...payload }; }),
     toggleAlly: patch((value) => {
       const i = snap.allies.findIndex((a) => a.accountId === value.accountId);
       if (i >= 0) snap.allies.splice(i, 1); else snap.allies.push({ accountId: value.accountId, name: value.name });
