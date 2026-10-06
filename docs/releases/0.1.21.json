@@ -1,0 +1,31 @@
+{
+  "version": "0.1.21",
+  "channel": "stable",
+  "platform": "Windows x64",
+  "status": "published (GitHub + Cryptlex Production)",
+  "installer": "BB Hub Setup 0.1.21.exe",
+  "installerSizeBytes": 126356371,
+  "installerSha256": "36171f98b1ee1aaf658c01ddf6f99024908f8e2c02c8fa80b00effbafe8b3671",
+  "runtimeBuild": "06102026_html5_hub_v6_62_og_simon2",
+  "commits": ["74361ec", "ac1e633"],
+  "changes": {
+    "simonDiceSection": true,
+    "simonReaderRotationInvariant": true,
+    "simonCartelsSavedUnderUserData": "simon-carteles (newest 400)",
+    "simonOnTurnsTimingOff": true,
+    "timingRuntimeUnchangedFrom019": true
+  },
+  "validation": {
+    "simonCapturedCartels": "7/7, min separation 0.49 (was 0.20)",
+    "simon020LiveGame": "7/7 rounds answered, game won (old reader)",
+    "simon021LiveGame": false,
+    "hubRuntimeHarness": "48 PASS",
+    "allies-regression": "PASS",
+    "publicDownloadSizeAndSha256Verified": true
+  },
+  "github": { "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/tag/v0.1.21" },
+  "cryptlex": { "environment": "Production", "releaseName": "BB Hub 0.1.21", "channel": "stable", "platform": "windows", "published": true, "publishedAt": "2026-10-06 (panel)", "verifiedInPanel": true, "externalFiles": [
+    { "name": "BB-Hub-Setup-0.1.21.exe", "size": 126356371, "md5": "09f5f1470e93f4055e7ed7419586e8e3", "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.21/BB-Hub-Setup-0.1.21.exe" },
+    { "name": "SHA256.txt", "size": 90, "md5": "c3200853218c2a27da13038372173b72", "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.21/SHA256.txt" } ],
+    "authorization": "Owner: 'Pushea a distribucion ya.' (06/10)" }
+}
