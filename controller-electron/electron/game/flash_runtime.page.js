@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "05102026_html5_hub_v6_62_og_exit_backup";
+  const BRIDGE_BUILD = "06102026_html5_hub_v6_62_og_allies";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -6173,6 +6173,35 @@
     return Boolean(name) && A.names.has(name);
   }
 
+  // ---- Portraits for the Hub's ally list (06/10) -------------------------------
+  // The keko as the room draws it, rendered by the game's own PIXI renderer.
+  // Called by the Hub launcher (never by the combat path), one avatar per call.
+  // A GPU readback blocks the main thread ~15 ms, so with Timing on it only runs
+  // right after a batch (the next tick click leaves ~435 ms after it).
+  // Only the account id, name and image leave the page.
+  const PORTRAIT_FRONT = { 4: 2, 1: 1, 7: 1, 8: 1 }; // orient -> quality (4 = facing us)
+  async function portraitNext(have = {}) {
+    const E = state.tickEngine;
+    const t = now();
+    const since = t - E.lastBatchAt;
+    if (tickEnabled() && E.origin != null && !(since >= 40 && since <= 300)) return { wait: true };
+    const renderer = providerInstance(state.providers.pixi)?.app?.renderer;
+    if (!renderer?.extract?.base64) return { error: "no_renderer" };
+    for (const [, avatar] of sceneRenderer()?.avatars || []) {
+      const info = avatar?.avatarInfo;
+      const accountId = Number(info?.id);
+      if (!Number.isFinite(accountId) || accountId <= 0 || !avatar?.movieClip || isStaleAvatar(avatar)) continue;
+      const quality = PORTRAIT_FRONT[Number(avatar.position?.z) | 0] || 0;
+      const prev = have[accountId];
+      if (prev != null && Number(prev) >= quality) continue;
+      let url = "";
+      try { url = await renderer.extract.base64({ target: avatar.movieClip, resolution: 1 }); } catch { continue; }
+      if (typeof url !== "string" || !url.startsWith("data:image/") || url.length > 200000) continue;
+      return { accountId, name: String(info.username || "").slice(0, 40), url, quality };
+    }
+    return { none: true };
+  }
+
   const ALLY_KEY = "bbhub.allies.v1";
   function allySet(msg, save = true) {
     const A = state.allies;
@@ -6752,6 +6781,7 @@
       state.hubConnected = Boolean(connected);
     },
     fire: (targetId) => firePunch(targetId, "manual"),
+    portraitNext,
     lab: {
       cooldownProbe: (options) => labCooldownProbe(options),
       structProbe: (options) => labStructProbe(options),

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import logoUrl from "../electron/assets/icon.png";
-import { AlertTriangle, ArrowUpRight, ArrowRight, Crosshair, Gauge, Grid2X2, ListFilter, RotateCcw, ScrollText, Square, Target, Trash2, Users, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, ArrowRight, Check, Crosshair, Gauge, Grid2X2, ListFilter, RotateCcw, ScrollText, ShieldCheck, Square, Target, Trash2, UserPlus, Users, X, Zap } from "lucide-react";
 import { createDemoApi } from "./demo.js";
 
 const fallbackSnapshot = {
@@ -108,6 +108,10 @@ const stubApi = {
   applyStepWalk: async () => {},
   applyFreeFire: async () => {},
   setAllies: async () => {},
+  toggleAlly: async () => {},
+  addAllyByName: async () => {},
+  removeAlly: async () => {},
+  getPortraits: async () => ({}),
   setAutoRun: async () => {},
   setEmotes: async () => {},
   setAdvanced: async () => {},
@@ -141,6 +145,7 @@ const navItems = [
   { id: "board", label: "Board", icon: Grid2X2 },
   { id: "dropHunter", label: "Drops", icon: Crosshair },
   { id: "players", label: "Jugadores", icon: Users },
+  { id: "allies", label: "Aliados", icon: ShieldCheck },
   { id: "logs", label: "Registro", icon: ScrollText }
 ];
 
@@ -162,6 +167,7 @@ function App() {
   const [playerFilter, setPlayerFilter] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
+  const [portraits, setPortraits] = useState({});
 
   useEffect(() => {
     let mounted = true;
@@ -169,6 +175,12 @@ function App() {
     const off = api.onSnapshot((next) => { if (mounted) setSnapshot(next); });
     return () => { mounted = false; off?.(); };
   }, []);
+  // Keko portraits travel apart from the snapshot (images): fetched when their version moves.
+  useEffect(() => {
+    let mounted = true;
+    api.getPortraits?.().then((next) => { if (mounted && next && typeof next === "object") setPortraits(next); }).catch(() => {});
+    return () => { mounted = false; };
+  }, [snapshot.portraitVersion]);
   const dropHunterKey = JSON.stringify(snapshot.dropHunter || {});
   useEffect(() => { if (!dropHunterDirty) setDropHunterForm(dropHunterFromSnapshot(snapshot)); }, [dropHunterKey, dropHunterDirty]);
 
@@ -201,7 +213,7 @@ function App() {
     })) setDropHunterDirty(false);
   };
   const openPlayer = async (id) => { await runAction(() => api.selectTarget(id)); setActiveTab("players"); };
-  const context = { snapshot, selectedPlayer, automaticPlayer, selfPlayer, players, filteredPlayers, playerFilter, setPlayerFilter, dropHunterForm, dropHunterDirty, updateDropHunter, applyDropHunter, applyTiming, runAction, openPlayer, setActiveTab, status, statusTone };
+  const context = { snapshot, portraits, selectedPlayer, automaticPlayer, selfPlayer, players, filteredPlayers, playerFilter, setPlayerFilter, dropHunterForm, dropHunterDirty, updateDropHunter, applyDropHunter, applyTiming, runAction, openPlayer, setActiveTab, status, statusTone };
 
   const combat = snapshot.combat || fallbackSnapshot.combat;
   const winRate = snapshot.tick?.auto?.recentWinRate;
@@ -249,6 +261,7 @@ function App() {
           {activeTab === "board" && <BoardView {...context} />}
           {activeTab === "dropHunter" && <DropHunterView {...context} />}
           {activeTab === "players" && <PlayersView {...context} />}
+          {activeTab === "allies" && <AlliesView {...context} />}
           {activeTab === "logs" && <LogsView logs={snapshot.logs || []} runAction={runAction} />}
         </main>
       </div>
@@ -378,7 +391,7 @@ function UpdateNotice({ updates, runAction }) {
   return <div className="notice" role="status"><span>{updates.message}</span>{updates.status === "available" && <button className="btn" onClick={() => runAction(() => api.installUpdate())}>Descargar e instalar</button>}</div>;
 }
 
-function TimingView({ snapshot, applyTiming, runAction }) {
+function TimingView({ snapshot, applyTiming, runAction, setActiveTab }) {
   const on = Boolean(snapshot.timing?.enabled);
   const live = snapshot.tick;
   const auto = live?.auto;
@@ -409,7 +422,7 @@ function TimingView({ snapshot, applyTiming, runAction }) {
         </section>
         <section className="section" aria-labelledby="allies-title">
           <h2 id="allies-title" className="section-title">Objetivos</h2>
-          <div className="spec"><AlliesRow snapshot={snapshot} runAction={runAction} /></div>
+          <div className="spec"><AlliesRow snapshot={snapshot} setActiveTab={setActiveTab} /></div>
         </section>
         <section className="section" aria-labelledby="move-title">
           <h2 id="move-title" className="section-title">Movimiento</h2>
@@ -540,18 +553,62 @@ function RequeueKeyRow({ snapshot, runAction }) {
     </div>
   </Setting>;
 }
-// Whitelist (29/09): players the bot never punches (the ally account, friends).
-function AlliesRow({ snapshot, runAction }) {
-  const saved = (snapshot.allies || []).join(", ");
-  const [draft, setDraft] = useState(saved);
-  useEffect(() => { setDraft(saved); }, [saved]);
-  const dirty = draft.trim() !== saved;
-  return <Setting title="Lista blanca" text={<>{snapshot.allies?.length ? `Nunca les pega a: ${snapshot.allies.join(", ")}.` : "El bot le pega a cualquiera."} Nombres separados por coma.</>} stack>
-    <div className="controls">
-      <input className="input" value={draft} placeholder="amigo1, amigo2" onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") runAction(() => api.setAllies(draft)); }} aria-label="Lista blanca" />
-      <button className={dirty ? "btn btn-primary" : "btn"} onClick={() => runAction(() => api.setAllies(draft))}>Guardar</button>
-    </div>
+// Allies (06/10): the players the bot never punches live in their own view.
+function allyLabel(ally) { return ally.name || `Cuenta ${ally.accountId}`; }
+function AlliesRow({ snapshot, setActiveTab }) {
+  const allies = Array.isArray(snapshot.allies) ? snapshot.allies : [];
+  const text = allies.length ? `Nunca les pega a ${allies.slice(0, 3).map(allyLabel).join(" · ")}${allies.length > 3 ? ` y ${allies.length - 3} más` : ""}.` : "El bot le pega a cualquiera.";
+  return <Setting title="Aliados" text={text}>
+    <button className="btn" onClick={() => setActiveTab("allies")}>Elegir aliados <ArrowRight aria-hidden="true" size={14} /></button>
   </Setting>;
+}
+
+// The keko as the room draws it; the name's initial until the game hands it over.
+function Keko({ url, name, size }) {
+  return <span className={`keko ${size === "lg" ? "keko-lg" : ""}`} aria-hidden="true">{url ? <img src={url} alt="" draggable="false" /> : <b>{String(name || "?").trim().charAt(0).toUpperCase() || "?"}</b>}</span>;
+}
+
+// Real account ids are 7-8 digits; without one the game falls back to the slot id.
+const isAccountId = (value) => Number.isSafeInteger(Number(value)) && Number(value) >= 1000;
+
+function AlliesView({ snapshot, players, portraits, runAction }) {
+  const allies = Array.isArray(snapshot.allies) ? snapshot.allies : [];
+  const [name, setName] = useState("");
+  const allyFor = (p) => allies.find((a) => (a.accountId && a.accountId === p.userId) || (!a.accountId && a.name && a.name.toLowerCase() === String(p.name || "").trim().toLowerCase()));
+  const room = players.filter((p) => !p.self && p.id !== snapshot.selfId && isAccountId(p.userId));
+  const hereIds = new Set(room.map((p) => p.userId));
+  const toggle = (p) => runAction(() => api.toggleAlly({ accountId: p.userId, name: p.name }));
+  const add = async () => { if (await runAction(() => api.addAllyByName(name))) setName(""); };
+  const roomAllies = room.filter((p) => allyFor(p)).length;
+  return <>
+    <PageHeading title="Aliados" description="El bot nunca les pega. Toca un jugador de la sala para sumarlo o quitarlo." />
+    <section className="section" aria-labelledby="room-allies-title">
+      <h2 id="room-allies-title" className="section-title">En la sala <span className="section-meta">{snapshot.connected ? `${room.length} ${room.length === 1 ? "jugador" : "jugadores"} · ${roomAllies} ${roomAllies === 1 ? "aliado" : "aliados"}` : "sin juego conectado"}</span></h2>
+      {room.length ? <ul className="keko-grid">{room.map((p) => { const on = Boolean(allyFor(p)); return <li key={p.id}>
+        <button type="button" className={`keko-pick ${on ? "is-ally" : ""}`} aria-pressed={on} onClick={() => toggle(p)} title={on ? `Quitar a ${p.name} de aliados` : `Sumar a ${p.name} como aliado`}>
+          <Keko url={portraits[p.userId]} name={p.name} size="lg" />
+          <span className="keko-name">{p.name || `Jugador ${p.id}`}</span>
+          <span className="keko-meta mono">#{p.id}</span>
+          <span className={`keko-state ${on ? "is-on" : ""}`}>{on ? <><Check aria-hidden="true" size={13} strokeWidth={2.2} />Aliado</> : "Sumar"}</span>
+        </button>
+      </li>; })}</ul> : <EmptyState icon={Users} title={snapshot.connected ? "No hay otros jugadores en la sala." : "Conecta el juego para ver la sala."} text="Los jugadores de la sala aparecen acá con su keko." compact />}
+    </section>
+    <section className="section" aria-labelledby="saved-allies-title">
+      <h2 id="saved-allies-title" className="section-title">Tus aliados <span className="section-meta">{allies.length}</span></h2>
+      {allies.length ? <ul className="ally-list">{allies.map((a) => { const key = a.accountId ? `a${a.accountId}` : `n${a.name}`; const here = a.accountId ? hereIds.has(a.accountId) : room.some((p) => String(p.name || "").trim().toLowerCase() === a.name.toLowerCase()); return <li key={key} className="ally-row">
+        <Keko url={a.accountId ? portraits[a.accountId] : ""} name={a.name} />
+        <span className="ally-text"><span className="ally-name">{allyLabel(a)}</span><span className="ally-meta mono">{a.accountId ? `cuenta ${a.accountId}` : "por nombre exacto"}</span></span>
+        {here && <span className="flag">En la sala</span>}
+        <button type="button" className="icon-btn" onClick={() => runAction(() => api.removeAlly({ accountId: a.accountId, name: a.name }))} aria-label={`Quitar a ${allyLabel(a)} de aliados`} title="Quitar"><X aria-hidden="true" size={15} /></button>
+      </li>; })}</ul> : <EmptyState icon={ShieldCheck} title="Todavía no tienes aliados." text="Tócalos en la sala o agrégalos por nombre." compact />}
+      <div className="spec"><Setting title="Agregar por nombre" text="Para alguien que no está en la sala. Nombre exacto, uno por vez; se vincula a su cuenta cuando aparezca." stack>
+        <form className="controls" onSubmit={(e) => { e.preventDefault(); add(); }}>
+          <input className="input" value={name} maxLength={40} placeholder="Nombre exacto" onChange={(e) => setName(e.target.value)} aria-label="Nombre del aliado" />
+          <button type="submit" className={name.trim() ? "btn btn-primary" : "btn"} disabled={!name.trim()}><UserPlus aria-hidden="true" size={15} />Agregar</button>
+        </form>
+      </Setting></div>
+    </section>
+  </>;
 }
 
 // Arrival of the tick click: Auto (learned) or a fixed T + N ms to compare settings.

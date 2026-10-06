@@ -66,7 +66,7 @@ function buildSnapshot(base) {
     tickAim: null,
     exit: { cocoActive: false, cocoRemainingMs: 0 },
     stepWalk: true,
-    allies: ["Flee"],
+    allies: [{ accountId: 771032, name: "Flee" }, { accountId: null, name: "amigo, con coma" }],
     autoRun: false,
     emotes: true,
     advanced: { burst: 5, repeatMs: 0, sweep: true, reactive: true },
@@ -128,7 +128,14 @@ export function createDemoApi(base) {
     setTickAim: patch((value) => { snap.tickAim = value; }),
     applyExit: async () => {},
     applyStepWalk: patch(({ enabled }) => { snap.stepWalk = enabled; }),
-    setAllies: patch((value) => { snap.allies = String(value).split(",").map((s) => s.trim()).filter(Boolean); }),
+    setAllies: patch((value) => { snap.allies = String(value).split(",").map((s) => s.trim()).filter(Boolean).map((name) => ({ accountId: null, name })); }),
+    toggleAlly: patch((value) => {
+      const i = snap.allies.findIndex((a) => a.accountId === value.accountId);
+      if (i >= 0) snap.allies.splice(i, 1); else snap.allies.push({ accountId: value.accountId, name: value.name });
+    }),
+    addAllyByName: patch((name) => { snap.allies.push({ accountId: null, name: String(name).trim() }); }),
+    removeAlly: patch((value) => { snap.allies = snap.allies.filter((a) => !(value.accountId ? a.accountId === value.accountId : a.name === value.name)); }),
+    getPortraits: async () => Object.fromEntries(NAMES.map((p) => [p.userId, DEMO_AVATAR])),
     setAutoRun: patch((value) => { snap.autoRun = value; }),
     setEmotes: patch((value) => { snap.emotes = value; }),
     setAdvanced: patch((value) => { snap.advanced = value === "defaults" ? { burst: 5, repeatMs: 0, sweep: true, reactive: true } : { ...snap.advanced, ...value }; }),
