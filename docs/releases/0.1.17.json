@@ -2,7 +2,7 @@
   "version": "0.1.17",
   "channel": "stable",
   "platform": "Windows x64",
-  "status": "published on GitHub; Cryptlex release pending (panel login required)",
+  "status": "published (GitHub + Cryptlex Production)",
   "installer": "BB Hub Setup 0.1.17.exe",
   "installerSizeBytes": 126355177,
   "installerSha256": "459269f05289abe01884cfe39054beaa7004ab01113dc0699182b9f619022e4c",
@@ -16,16 +16,52 @@
   },
   "validation": {
     "historicalRuntimeSuite": "48 PASS",
-    "passedSuites": ["allies-regression", "runtime-security", "pro-hotkey-updater", "client-discovery", "port-conflict", "avatar-regression (packaged)"],
+    "passedSuites": [
+      "allies-regression",
+      "runtime-security",
+      "pro-hotkey-updater",
+      "client-discovery",
+      "port-conflict",
+      "avatar-regression (packaged)"
+    ],
     "ownerTestedLocally": true,
     "publicDownloadSizeAndSha256Verified": true
   },
   "github": {
     "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/tag/v0.1.17",
-    "assets": ["BB-Hub-Setup-0.1.17.exe", "SHA256.txt", "LEEME.txt"]
+    "assets": [
+      "BB-Hub-Setup-0.1.17.exe",
+      "SHA256.txt",
+      "LEEME.txt"
+    ]
   },
   "cryptlexExternalFiles": [
-    { "name": "BB-Hub-Setup-0.1.17.exe", "size": 126355177, "md5": "08e1bc6127027a237ab45bda48c5e9fc", "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.17/BB-Hub-Setup-0.1.17.exe" },
-    { "name": "SHA256.txt", "size": 90, "md5": "424c5b3b5bd4069dd2a6d2a9fb07836a", "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.17/SHA256.txt" }
-  ]
+    {
+      "name": "BB-Hub-Setup-0.1.17.exe",
+      "size": 126355177,
+      "md5": "08e1bc6127027a237ab45bda48c5e9fc",
+      "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.17/BB-Hub-Setup-0.1.17.exe"
+    },
+    {
+      "name": "SHA256.txt",
+      "size": 90,
+      "md5": "424c5b3b5bd4069dd2a6d2a9fb07836a",
+      "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.17/SHA256.txt"
+    }
+  ],
+  "cryptlex": {
+    "environment": "Production",
+    "releaseName": "BB Hub 0.1.17",
+    "channel": "stable",
+    "platform": "windows",
+    "published": true,
+    "publishedAt": "2026-10-06 14:32 (panel)",
+    "externalFiles": [
+      "BB-Hub-Setup-0.1.17.exe",
+      "SHA256.txt"
+    ],
+    "securedFiles": false,
+    "verifiedInPanel": true,
+    "authorization": "Owner asked to push the whitelist update to distribution (06/10)"
+  }
 }
