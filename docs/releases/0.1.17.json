@@ -1,0 +1,31 @@
+{
+  "version": "0.1.17",
+  "channel": "stable",
+  "platform": "Windows x64",
+  "status": "published on GitHub; Cryptlex release pending (panel login required)",
+  "installer": "BB Hub Setup 0.1.17.exe",
+  "installerSizeBytes": 126355177,
+  "installerSha256": "459269f05289abe01884cfe39054beaa7004ab01113dc0699182b9f619022e4c",
+  "runtimeBuild": "06102026_html5_hub_v6_62_og_allies",
+  "commit": "281fbbf",
+  "changes": {
+    "alliesViewWithRoomKekos": true,
+    "alliesStoredByAccountId": true,
+    "legacyCommaListMigrated": true,
+    "timingDecisionsUnchangedFrom016": true
+  },
+  "validation": {
+    "historicalRuntimeSuite": "48 PASS",
+    "passedSuites": ["allies-regression", "runtime-security", "pro-hotkey-updater", "client-discovery", "port-conflict", "avatar-regression (packaged)"],
+    "ownerTestedLocally": true,
+    "publicDownloadSizeAndSha256Verified": true
+  },
+  "github": {
+    "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/tag/v0.1.17",
+    "assets": ["BB-Hub-Setup-0.1.17.exe", "SHA256.txt", "LEEME.txt"]
+  },
+  "cryptlexExternalFiles": [
+    { "name": "BB-Hub-Setup-0.1.17.exe", "size": 126355177, "md5": "08e1bc6127027a237ab45bda48c5e9fc", "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.17/BB-Hub-Setup-0.1.17.exe" },
+    { "name": "SHA256.txt", "size": 90, "md5": "424c5b3b5bd4069dd2a6d2a9fb07836a", "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.17/SHA256.txt" }
+  ]
+}
