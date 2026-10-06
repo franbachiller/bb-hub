@@ -187,7 +187,7 @@ class GameLauncher extends EventEmitter {
     }
     // The observer is on for the whole connection; with the log it also writes.
     if (this.diagnostics && this.recorder && this.page) {
-      if (!this.wire) await this.startWire();
+      if (!this.wire) void this.startWire();
       else if (!this.wire.writing) await this.wire.setOutput(path.dirname(this.recorder.file), this.gameFrame).catch(() => {});
     }
     if (this.gameFrame) {
@@ -205,16 +205,26 @@ class GameLauncher extends EventEmitter {
   // Passive CDP observer of the game socket for the whole connection (06/10):
   // the original launcher and 0.1.18 with the combat log, the two setups that
   // played right, both had it attached. Writes only while the log is on.
-  async startWire() {
-    if (this.wire || !this.page) return;
-    const dir = this.diagnostics && this.recorder ? path.dirname(this.recorder.file) : null;
-    try {
-      this.wire = await observeWire(this.page, dir, (message) => this.log(`Registro de conexión: ${message}`));
-      if (dir && this.gameFrame) await this.wire.anchor(this.gameFrame).catch(() => this.log("Registro de conexión: no se pudo sincronizar el reloj."));
-    } catch (error) {
-      this.wire = null;
-      this.log(`Observador de conexión no disponible: ${error.message}`);
-    }
+  startWire() {
+    if (this.wire || !this.page) return Promise.resolve();
+    if (this.wireStarting) return this.wireStarting;
+    const page = this.page;
+    this.wireStarting = (async () => {
+      const dir = this.diagnostics && this.recorder ? path.dirname(this.recorder.file) : null;
+      try {
+        const wire = await observeWire(page, dir, (message) => this.log(`Registro de conexión: ${message}`));
+        if (page !== this.page) { await wire.close().catch(() => {}); return; } // disconnected meanwhile
+        this.wire = wire;
+        if (dir && this.gameFrame) await wire.anchor(this.gameFrame).catch(() => this.log("Registro de conexión: no se pudo sincronizar el reloj."));
+        // The log may have been switched on while attaching.
+        if (!wire.writing && this.diagnostics && this.recorder) await wire.setOutput(path.dirname(this.recorder.file), this.gameFrame).catch(() => {});
+      } catch (error) {
+        this.log(`Observador de conexión no disponible: ${error.message}`);
+      } finally {
+        this.wireStarting = null;
+      }
+    })();
+    return this.wireStarting;
   }
 
   async stopWire() {
@@ -521,7 +531,7 @@ class GameLauncher extends EventEmitter {
     this.startAvatarRead();
     this.startPriorityBoost();
     this.startPortraitRead();
-    await this.startWire();
+    void this.startWire();
 
     const closed = () => {
       if (this.state !== "ready") return;
