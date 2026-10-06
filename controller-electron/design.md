@@ -70,6 +70,7 @@ Escala de 4 pt con nombre (`--space-3xs` … `--space-2xl`). Nada de valores sue
 
 ## Per-page allowances
 - Activación de licencia · por pedido del usuario: ventana opaca negro mate `#111111`, bordes y controles neutros, primario blanco; logo real `electron/assets/icon.png` y texto en español neutro. Conserva Inter + Geist Mono; sin tarjetas flotantes, transparencias, blur, degradados ni sombras.
+- Aliados · los jugadores de la sala van en una grilla de casillas con borde `rule` (keko real extraído del juego, nombre, #id y estado), cada una es un interruptor de un clic (`aria-pressed`). Aliado = borde `ink` + etiqueta rellena `ink`; el carmesí no se usa (no es "el bot actúa"). Los aliados guardados van en lista con reglas finas.
 - Sin enriquecimiento (ni ilustraciones ni fondos decorativos): la función carga la pantalla.
 - El canvas del tablero lee los tokens en tiempo de ejecución (`cssToken()` en `ring-board/src/web/app.ts`).
 

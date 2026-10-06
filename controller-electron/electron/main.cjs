@@ -217,6 +217,10 @@ function wireIpc() {
   handle("controller:applyStepWalk", (_event, payload) => core.applyStepWalk(payload || {}));
   handle("controller:applyFreeFire", (_event, payload) => core.applyFreeFire(payload || {}));
   handle("controller:setAllies", (_event, value) => core.setAllies(value));
+  handle("controller:toggleAlly", (_event, value) => core.toggleAlly(value && typeof value === "object" ? { accountId: value.accountId, name: value.name } : null));
+  handle("controller:addAllyByName", (_event, name) => core.addAllyByName(typeof name === "string" ? name : ""));
+  handle("controller:removeAlly", (_event, value) => core.removeAlly(value && typeof value === "object" ? { accountId: value.accountId, name: value.name } : null));
+  handle("controller:getPortraits", () => core.getPortraits());
   handle("controller:setAutoRun", (_event, value) => core.setAutoRun(value));
   handle("controller:setEmotes", (_event, value) => core.setEmotes(value));
   handle("controller:setCocoSelf", (_event, mode) => core.setCocoSelf(mode));
@@ -403,6 +407,7 @@ function startApp() {
     log: (line) => core.log(line)
   });
   launcher.on("change", () => sendSnapshot(core.snapshot()));
+  launcher.on("portrait", (portrait) => core.notePortrait(portrait));
   wireIpc();
   core.start();
   void startBundledRingBoard();

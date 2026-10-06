@@ -250,14 +250,35 @@ function normalizeAdvanced(value) {
   };
 }
 
+// 06/10: each ally is { accountId, name }. The account id is what the runtime
+// matches (names can carry commas, spaces or change case); a name-only entry
+// (typed by hand, or saved by the old comma list) matches by exact name until
+// that player shows up in a room, then it is bound to the account.
+const ALLIES_MAX = 100;
 function normalizeAllies(value) {
   const list = Array.isArray(value) ? value : String(value || "").split(",");
   const out = [];
   for (const item of list) {
-    const v = String(item).trim();
-    if (v && !out.some((x) => x.toLowerCase() === v.toLowerCase())) out.push(v.slice(0, 40));
+    let accountId = null;
+    let name = "";
+    if (item && typeof item === "object") {
+      const id = Number(item.accountId);
+      accountId = Number.isSafeInteger(id) && id > 0 ? id : null;
+      name = String(item.name || "").trim().slice(0, 40);
+    } else {
+      const v = String(item ?? "").trim();
+      if (/^\d+$/.test(v)) accountId = Number(v);
+      else name = v.slice(0, 40);
+    }
+    if (!accountId && !name) continue;
+    const dup = out.find((x) => accountId ? x.accountId === accountId : !x.accountId && x.name.toLowerCase() === name.toLowerCase());
+    if (dup) {
+      if (!dup.name && name) dup.name = name;
+      continue;
+    }
+    out.push({ accountId, name });
   }
-  return out.slice(0, 50);
+  return out.slice(0, ALLIES_MAX);
 }
 
 function normalizeTickAim(value) {
@@ -505,6 +526,12 @@ class ControllerCore extends EventEmitter {
     // Step walk (runtime): our walks go out one tile per tick. On unless turned off.
     this.stepWalk = saved.stepWalk !== false;
     this.allies = normalizeAllies(saved.allies ?? []);
+    // Keko portraits read from the game (accountId -> { url, quality, name }).
+    // Only the allies' ones are kept on disk, next to the settings.
+    this.portraits = new Map();
+    this.portraitVersion = 0;
+    this.portraitsPath = path.join(path.dirname(this.settingsPath), "ally-portraits.json");
+    this.loadAllyPortraits();
     // Auto mode (29/09): the bot plays on its own and rejoins the Ring after each loss.
     this.autoRun = saved.autoRun === true && this.boardLicensed();
     // Random emotes (29/09): a laugh, a spit... now and then, never with a rival close in the Ring.
@@ -748,6 +775,7 @@ class ControllerCore extends EventEmitter {
       this.selectedTarget = safeInt(data.selectedId, this.selectedTarget);
       this.noteSwfClock(data);
       this.updatePlayers(Array.isArray(data.players) ? data.players : []);
+      if (this.allies.some((a) => !a.accountId)) this.bindAllyNames();
       if (data.tick) {
         this.tick = normalizeTickStatus(data.tick);
       }
@@ -1183,9 +1211,122 @@ class ControllerCore extends EventEmitter {
   }
 
   pushAllies() {
-    const accounts = this.allies.filter((v) => /^\d+$/.test(v)).map(Number);
-    const names = this.allies.filter((v) => !/^\d+$/.test(v));
+    const accounts = this.allies.filter((a) => a.accountId).map((a) => a.accountId);
+    const names = this.allies.filter((a) => !a.accountId && a.name).map((a) => a.name);
     this.sendToSwf({ type: "ally_config", accounts, names });
+  }
+
+  alliesChanged(reason) {
+    this.persistSettings();
+    this.saveAllyPortraits();
+    this.pushAllies();
+    const list = this.allies.map((a) => a.name || `cuenta ${a.accountId}`).join(" · ");
+    this.log(`Aliados -> ${list || "(ninguno)"}${reason ? ` (${reason})` : ""}`);
+    this.emitSnapshot(true);
+    return true;
+  }
+
+  // One click in the Hub: a room player becomes an ally or stops being one.
+  toggleAlly(value) {
+    const accountId = Number(value?.accountId);
+    const name = String(value?.name || "").trim().slice(0, 40);
+    const hasId = Number.isSafeInteger(accountId) && accountId > 0;
+    if (!hasId && !name) throw new Error("Jugador inválido.");
+    const isSame = (a) => (hasId && a.accountId === accountId) || (!a.accountId && name && a.name.toLowerCase() === name.toLowerCase());
+    if (this.allies.some(isSame)) {
+      this.allies = this.allies.filter((a) => !isSame(a));
+      return this.alliesChanged(`quitado ${name || accountId}`);
+    }
+    if (this.allies.length >= ALLIES_MAX) throw new Error(`Máximo ${ALLIES_MAX} aliados.`);
+    this.allies = normalizeAllies([...this.allies, { accountId: hasId ? accountId : null, name }]);
+    return this.alliesChanged(`agregado ${name || accountId}`);
+  }
+
+  // Exact name, typed by hand: bound to the account if that player is here.
+  addAllyByName(value) {
+    const name = String(value || "").trim().slice(0, 40);
+    if (!name) throw new Error("Escribe el nombre exacto del jugador.");
+    const here = Array.from(this.players.values()).find((p) => !p.self && String(p.name || "").trim().toLowerCase() === name.toLowerCase());
+    const accountId = here && here.userId > 0 ? here.userId : null;
+    if (this.allies.some((a) => (accountId && a.accountId === accountId) || a.name.toLowerCase() === name.toLowerCase())) return true;
+    if (this.allies.length >= ALLIES_MAX) throw new Error(`Máximo ${ALLIES_MAX} aliados.`);
+    this.allies = normalizeAllies([...this.allies, { accountId, name: here ? here.name : name }]);
+    return this.alliesChanged(`agregado ${name}`);
+  }
+
+  removeAlly(value) {
+    const accountId = Number(value?.accountId);
+    const name = String(value?.name || "").trim().toLowerCase();
+    const before = this.allies.length;
+    this.allies = this.allies.filter((a) => !((accountId > 0 && a.accountId === accountId) || (!a.accountId && name && a.name.toLowerCase() === name)));
+    return before === this.allies.length ? true : this.alliesChanged("quitado");
+  }
+
+  // A name-only ally seen in the room is bound to its account (and an account
+  // ally gets its current name), so a rename keeps it an ally.
+  bindAllyNames() {
+    let changed = false;
+    const players = Array.from(this.players.values());
+    for (const ally of this.allies) {
+      if (ally.accountId) {
+        const p = players.find((x) => x.userId === ally.accountId && x.name);
+        if (p && p.name.slice(0, 40) !== ally.name) { ally.name = p.name.slice(0, 40); changed = true; }
+        continue;
+      }
+      const p = players.find((x) => !x.self && x.userId > 0 && String(x.name || "").trim().toLowerCase() === ally.name.toLowerCase());
+      if (p && !this.allies.some((a) => a.accountId === p.userId)) { ally.accountId = p.userId; changed = true; }
+    }
+    if (changed) this.alliesChanged("vinculado a la cuenta");
+  }
+
+  notePortrait(value) {
+    const accountId = Number(value?.accountId);
+    const url = String(value?.url || "");
+    if (!(Number.isSafeInteger(accountId) && accountId > 0) || !/^data:image\/(png|webp|jpeg);base64,/.test(url) || url.length > 200000) return;
+    const quality = Number(value.quality) || 0;
+    const prev = this.portraits.get(accountId);
+    if (prev && prev.quality > quality) return;
+    this.portraits.set(accountId, { url, quality, name: String(value.name || "").slice(0, 40), at: Date.now() });
+    // Bounded: drop the oldest non-ally portraits.
+    if (this.portraits.size > 300) {
+      const allyIds = new Set(this.allies.map((a) => a.accountId).filter(Boolean));
+      const old = Array.from(this.portraits.entries()).filter(([id]) => !allyIds.has(id)).sort((a, b) => a[1].at - b[1].at);
+      for (const [id] of old.slice(0, this.portraits.size - 300)) this.portraits.delete(id);
+    }
+    this.portraitVersion++;
+    if (this.allies.some((a) => a.accountId === accountId)) this.saveAllyPortraits();
+    this.emitSnapshot();
+  }
+
+  getPortraits() {
+    const out = {};
+    for (const [id, p] of this.portraits) out[id] = p.url;
+    return out;
+  }
+
+  loadAllyPortraits() {
+    try {
+      const saved = JSON.parse(fs.readFileSync(this.portraitsPath, "utf8"));
+      for (const [id, p] of Object.entries(saved || {})) {
+        const accountId = Number(id);
+        if (Number.isSafeInteger(accountId) && accountId > 0 && /^data:image\//.test(String(p?.url || ""))) {
+          this.portraits.set(accountId, { url: String(p.url), quality: Number(p.quality) || 0, name: String(p.name || ""), at: 0 });
+        }
+      }
+    } catch {}
+  }
+
+  saveAllyPortraits() {
+    clearTimeout(this.portraitSaveTimer);
+    this.portraitSaveTimer = setTimeout(() => {
+      const out = {};
+      for (const ally of this.allies) {
+        const p = ally.accountId && this.portraits.get(ally.accountId);
+        if (p) out[ally.accountId] = { url: p.url, quality: p.quality, name: ally.name };
+      }
+      try { fs.writeFileSync(this.portraitsPath, JSON.stringify(out)); } catch (error) { this.log(`No se pudieron guardar los retratos: ${error.message}`); }
+    }, 1000);
+    this.portraitSaveTimer.unref?.();
   }
 
   pushRequeueKey() {
@@ -1294,11 +1435,7 @@ class ControllerCore extends EventEmitter {
 
   setAllies(value) {
     this.allies = normalizeAllies(value);
-    this.persistSettings();
-    this.pushAllies();
-    this.log(`Lista blanca -> ${this.allies.length ? this.allies.join(", ") : "(vacía)"}`);
-    this.emitSnapshot();
-    return true;
+    return this.alliesChanged("");
   }
 
   applyExit(payload = {}) {
@@ -1750,7 +1887,10 @@ class ControllerCore extends EventEmitter {
   }
 
   boardAllyKeys() {
-    const list = [...(Array.isArray(this.allies) ? this.allies : []), ...String(process.env.BB_BOARD_IGNORE || "").split(",")];
+    const list = [
+      ...this.allies.map((a) => (a.accountId ? String(a.accountId) : a.name)),
+      ...String(process.env.BB_BOARD_IGNORE || "").split(",")
+    ];
     return new Set(list.map((v) => String(v).trim().toLowerCase()).filter(Boolean));
   }
 
@@ -1925,6 +2065,7 @@ class ControllerCore extends EventEmitter {
       exitMode: this.exitMode,
       stepWalk: this.stepWalk !== false,
       allies: this.allies,
+      portraitVersion: this.portraitVersion,
       autoRun: this.autoRun === true,
       emotes: this.emotes !== false,
       cocoSelfMode: this.cocoSelfMode === "off" ? "off" : "auto",

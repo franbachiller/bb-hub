@@ -108,6 +108,9 @@ class GameLauncher extends EventEmitter {
     this.avatarUrl = "";
     this.avatarTimer = null;
     this.avatarGeneration = 0;
+    // accountId -> portrait quality (0 back .. 2 facing us) already delivered.
+    this.portraitHave = {};
+    this.portraitTimer = null;
     this.busy = false;
   }
 
@@ -484,6 +487,7 @@ class GameLauncher extends EventEmitter {
     if (this.diagnostics) await this.applyDiagnostics();
     this.startAvatarRead();
     this.startPriorityBoost();
+    this.startPortraitRead();
 
     const closed = () => {
       if (this.state !== "ready") return;
@@ -510,6 +514,7 @@ class GameLauncher extends EventEmitter {
 
   startPriorityBoost() {
     this.stopPriorityBoost();
+    this.stopPortraitRead();
     if (process.platform !== "win32") return;
     const boost = () => execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", PRIORITY_PS],
       { windowsHide: true, timeout: 10000 }, (error) => {
@@ -521,6 +526,32 @@ class GameLauncher extends EventEmitter {
     boost();
     this.priorityTimer = setInterval(boost, PRIORITY_EVERY_MS);
     this.priorityTimer.unref?.();
+  }
+
+  // Keko portraits of the room's players for the ally list. One per call, at a
+  // calm moment of the tick (the runtime decides); emitted as "portrait".
+  startPortraitRead() {
+    this.stopPortraitRead();
+    const poll = async () => {
+      const frame = this.gameFrame;
+      if (!frame) return;
+      const result = await inPage(frame, `return await window.__BBFlashRuntime?.portraitNext?.(${arg(this.portraitHave)}) ?? null;`).catch(() => null);
+      if (frame === this.gameFrame && result?.url && Number(result.accountId) > 0) {
+        this.portraitHave[result.accountId] = Number(result.quality) || 0;
+        this.emit("portrait", { accountId: Number(result.accountId), name: String(result.name || ""), url: result.url, quality: Number(result.quality) || 0 });
+      }
+      if (this.gameFrame) {
+        this.portraitTimer = setTimeout(poll, result?.wait ? 250 : 1500);
+        this.portraitTimer.unref?.();
+      }
+    };
+    this.portraitTimer = setTimeout(poll, 1500);
+    this.portraitTimer.unref?.();
+  }
+
+  stopPortraitRead() {
+    clearTimeout(this.portraitTimer);
+    this.portraitTimer = null;
   }
 
   stopPriorityBoost() {
@@ -570,6 +601,7 @@ class GameLauncher extends EventEmitter {
   async teardown(closeGame) {
     this.stopAvatarRead();
     this.stopPriorityBoost();
+    this.stopPortraitRead();
     await this.closeRecorder();
     this.gameFrame = null;
     try { this.bridge?.stop(); } catch {}
@@ -588,6 +620,7 @@ class GameLauncher extends EventEmitter {
   stop() {
     this.stopAvatarRead();
     this.stopPriorityBoost();
+    this.stopPortraitRead();
     void this.closeRecorder();
     try { this.bridge?.stop(); } catch {}
     this.bridge = null;
