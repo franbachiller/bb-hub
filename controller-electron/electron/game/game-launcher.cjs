@@ -14,6 +14,7 @@ const { EventEmitter } = require("node:events");
 const { safeStorage } = require("electron");
 const { HubBridge } = require("./hub-bridge.cjs");
 const { createDiagnosticRecorder } = require("./diagnostic-recorder.cjs");
+const { observeWire } = require("./wire-observer.cjs");
 const { isHtml5Executable, locateHtml5Client } = require("./client-locator.cjs");
 
 const BACKEND = "https://backend-launcher.boombang.tv";
@@ -91,6 +92,10 @@ class GameLauncher extends EventEmitter {
     // unless turned on from Inicio. Combat only: never auth, tickets or chat.
     this.diagnostics = this.readOptions().diagnostics === true;
     this.recorder = null;
+    // Passive CDP observer of the game socket (06/10): send/receive times and
+    // sizes only, next to the combat log. Never wraps or delays a send.
+    this.wire = null;
+    this.page = null;
     this.defaultClientExe = clientExe;
     this.clientRoots = clientRoots;
     this.clientExe = locateHtml5Client({ preferred: this.readOptions().clientExe, fallback: clientExe, roots: clientRoots });
@@ -180,6 +185,16 @@ class GameLauncher extends EventEmitter {
       this.recorder = createDiagnosticRecorder(dir, { enabled: true, onError: (error) => this.log(`Registro de combate: ${error.message}`) });
       this.log(`Registro de combate: ${this.recorder.file}`);
     }
+    // The recorder may exist before the game page does (log switched on first).
+    if (this.diagnostics && this.recorder && this.page && !this.wire) {
+      try {
+        this.wire = await observeWire(this.page, path.dirname(this.recorder.file), (message) => this.log(`Registro de conexión: ${message}`));
+        if (this.gameFrame) await this.wire.anchor(this.gameFrame).catch(() => this.log("Registro de conexión: no se pudo sincronizar el reloj."));
+      } catch (error) {
+        this.wire = null;
+        this.log(`Registro de conexión no disponible: ${error.message}`);
+      }
+    }
     if (this.gameFrame) {
       await inPage(this.gameFrame, `window.__BBFlashRuntime?.onHubMessage?.({ type: "diagnostic_config", enabled: ${arg(this.diagnostics)} });`).catch(() => {});
     }
@@ -188,6 +203,9 @@ class GameLauncher extends EventEmitter {
   async closeRecorder() {
     const recorder = this.recorder;
     this.recorder = null;
+    const wire = this.wire;
+    this.wire = null;
+    try { await wire?.close(); } catch {}
     try { await recorder?.close(); } catch {}
   }
 
@@ -392,6 +410,7 @@ class GameLauncher extends EventEmitter {
     const pages = this.browser.contexts().flatMap((context) => context.pages());
     const page = pages.find((p) => /boombang/.test(p.url())) || pages[0];
     if (!page) throw new Error("No se encontró la ventana del juego.");
+    this.page = page;
 
     this.bridge = new HubBridge({
       port: this.hubPort,
@@ -604,6 +623,7 @@ class GameLauncher extends EventEmitter {
     this.stopPortraitRead();
     await this.closeRecorder();
     this.gameFrame = null;
+    this.page = null;
     try { this.bridge?.stop(); } catch {}
     this.bridge = null;
     const browser = this.browser;
