@@ -577,7 +577,6 @@ function SimonView({ snapshot, runAction }) {
         <Setting title="Espera antes de tocar" text="Al instante gana el duelo final, donde cae el más lento. Con espera se ve más humano; cada ronda da menos tiempo (de 6 s a ~1 s)." stack>
           <div className="segmented" role="group" aria-label="Espera antes de tocar">{SIMON_DELAYS.map(([v, label]) => <button key={v} className={`seg ${(simon.delayMs || 0) === v ? "is-on" : ""}`} aria-pressed={(simon.delayMs || 0) === v} onClick={() => runAction(() => api.applySimon({ delayMs: v }))}>{label}</button>)}</div>
         </Setting>
-        <Setting title="Timing en Simon" text="En la sala de Simon el Timing no manda golpes, para no pegarle a los demás en plena partida." />
       </div>
     </section>
     <section className="section" aria-labelledby="simon-stats-title">

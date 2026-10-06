@@ -265,6 +265,7 @@ function normalizeSimonStatus(raw) {
   const last = raw.last && typeof raw.last === "object" ? {
     round: n(raw.last.round), timeMs: n(raw.last.timeMs), go: raw.last.go === true ? true : raw.last.go === false ? false : null,
     cell: Number.isInteger(raw.last.cell) ? raw.last.cell : null, conf: Number.isFinite(Number(raw.last.conf)) ? Number(raw.last.conf) : null,
+    sep: Number.isFinite(Number(raw.last.sep)) ? Number(raw.last.sep) : null,
     readMs: Number.isFinite(Number(raw.last.readMs)) ? Number(raw.last.readMs) : null,
     totalMs: Number.isFinite(Number(raw.last.totalMs)) ? Number(raw.last.totalMs) : null,
     error: raw.last.error ? String(raw.last.error).slice(0, 80) : ""
@@ -552,6 +553,8 @@ class ControllerCore extends EventEmitter {
     this.portraits = new Map();
     this.portraitVersion = 0;
     this.portraitsPath = path.join(path.dirname(this.settingsPath), "ally-portraits.json");
+    // Every Simon cartel the runtime read, with its answer (for reviewing misreads).
+    this.simonCartelDir = path.join(path.dirname(this.settingsPath), "simon-carteles");
     this.loadAllyPortraits();
     // Auto mode (29/09): the bot plays on its own and rejoins the Ring after each loss.
     this.autoRun = saved.autoRun === true && this.boardLicensed();
@@ -811,6 +814,10 @@ class ControllerCore extends EventEmitter {
         this.exit = normalizeExitStatus(data.exit);
       }
       this.pushRingBoardSensors(data);
+      return;
+    }
+    if (type === "simon_cartel") {
+      this.saveSimonCartel(data);
       return;
     }
     if (type === "timing_target") {
@@ -1234,12 +1241,41 @@ class ControllerCore extends EventEmitter {
   }
 
   applySimon(payload = {}) {
+    const wasOn = this.simon.enabled;
     this.simon = normalizeSimon({ ...this.simon, ...(payload || {}) });
     this.persistSettings();
     this.pushSimon();
+    // Simon on turns the Timing off: nobody gets punched mid game.
+    if (this.simon.enabled && !wasOn && this.timing?.enabled) this.applyTiming({ enabled: false });
     this.log(`Simon Dice -> ${this.simon.enabled ? "ON" : "OFF"}${this.simon.delayMs ? ` (espera ${this.simon.delayMs} ms)` : ""}`);
     this.emitSnapshot(true);
     return true;
+  }
+
+  // File name: date, round, answer (cell 1-8 or "roja"), separation; "dudoso"
+  // when two faces read almost alike. The folder keeps the newest 400.
+  saveSimonCartel(data) {
+    const b64 = String(data.b64 || "");
+    if (!b64 || b64.length > 400000) return;
+    const round = Math.max(0, safeInt(data.round, 0));
+    const sep = Number.isFinite(Number(data.sep)) ? Number(data.sep) : null;
+    const answer = data.error ? "error" : data.go === false ? "roja" : `c${safeInt(data.cell, -1) + 1}`;
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 23);
+    const doubtful = sep != null && sep < 0.35;
+    const name = `${stamp}_r${round}_${answer}${sep != null ? `_sep${sep.toFixed(2)}` : ""}${doubtful ? "_dudoso" : ""}`;
+    try {
+      fs.mkdirSync(this.simonCartelDir, { recursive: true });
+      fs.writeFileSync(path.join(this.simonCartelDir, `${name}.webp`), Buffer.from(b64, "base64"));
+      fs.appendFileSync(path.join(this.simonCartelDir, "carteles.ndjson"), JSON.stringify({
+        at: new Date().toISOString(), file: `${name}.webp`, round, timeMs: safeInt(data.timeMs, 0), go: data.go !== false,
+        cell: Number.isInteger(data.cell) ? data.cell : null, sep, conf: Number.isFinite(Number(data.conf)) ? Number(data.conf) : null,
+        scores: Array.isArray(data.scores) ? data.scores.slice(0, 8) : null, readMs: Number(data.readMs) || null, error: String(data.error || "").slice(0, 80)
+      }) + "\n");
+      const files = fs.readdirSync(this.simonCartelDir).filter((f) => f.endsWith(".webp")).sort();
+      for (const f of files.slice(0, Math.max(0, files.length - 400))) fs.unlinkSync(path.join(this.simonCartelDir, f));
+    } catch (error) {
+      this.log(`No se pudo guardar el cartel de Simon: ${error.message}`);
+    }
   }
 
   applyFreeFire(payload = {}) {
