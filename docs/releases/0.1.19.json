@@ -1,0 +1,29 @@
+{
+  "version": "0.1.19",
+  "channel": "stable",
+  "platform": "Windows x64",
+  "status": "published (GitHub + Cryptlex Production)",
+  "installer": "BB Hub Setup 0.1.19.exe",
+  "installerSizeBytes": 126356498,
+  "installerSha256": "75899325d1c99401f379f75c4c2cf8e8b6924dba9cd76f4f006217b0d61b11ad",
+  "runtimeBuild": "06102026_html5_hub_v6_62_og_allies",
+  "commits": ["011c189", "8c4b93a"],
+  "changes": {
+    "passiveWireObserverAttachedWholeConnection": true,
+    "wireFileOnlyWithCombatLog": true,
+    "runtimeAndTimingUnchangedFrom018": true,
+    "includesAllies017": true
+  },
+  "rationale": "Owner reports the original launcher and 0.1.18 with the combat log (both with the observer attached) play right; clients have the combat log off by default, so the observer now attaches regardless. Causal effect not proven yet (A/B with log off pending).",
+  "validation": {
+    "observerUnitTest": "no file without log, file + clock anchor with log, stops writing when log off, detach on close",
+    "allies-regression": "PASS",
+    "packagedRuntimeEqualTo018": true,
+    "publicDownloadSizeAndSha256Verified": true,
+    "liveGameEfficacyValidated": false
+  },
+  "github": { "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/tag/v0.1.19" },
+  "cryptlex": { "environment": "Production", "releaseName": "BB Hub 0.1.19", "channel": "stable", "platform": "windows", "published": true, "publishedAt": "2026-10-06 14:47 (panel)", "externalFiles": [
+    { "name": "BB-Hub-Setup-0.1.19.exe", "size": 126356498, "md5": "416658a2869aa1273c7cdc7740296129" },
+    { "name": "SHA256.txt", "size": 90, "md5": "ab6ba4c44b15646f5b5fb2e7c80a3515" } ], "verifiedInPanel": true, "authorization": "Owner: 'Push a distribucion ya esta que estamos utilizando' (06/10)" }
+}
