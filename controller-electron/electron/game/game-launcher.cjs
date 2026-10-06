@@ -185,15 +185,10 @@ class GameLauncher extends EventEmitter {
       this.recorder = createDiagnosticRecorder(dir, { enabled: true, onError: (error) => this.log(`Registro de combate: ${error.message}`) });
       this.log(`Registro de combate: ${this.recorder.file}`);
     }
-    // The recorder may exist before the game page does (log switched on first).
-    if (this.diagnostics && this.recorder && this.page && !this.wire) {
-      try {
-        this.wire = await observeWire(this.page, path.dirname(this.recorder.file), (message) => this.log(`Registro de conexión: ${message}`));
-        if (this.gameFrame) await this.wire.anchor(this.gameFrame).catch(() => this.log("Registro de conexión: no se pudo sincronizar el reloj."));
-      } catch (error) {
-        this.wire = null;
-        this.log(`Registro de conexión no disponible: ${error.message}`);
-      }
+    // The observer is on for the whole connection; with the log it also writes.
+    if (this.diagnostics && this.recorder && this.page) {
+      if (!this.wire) await this.startWire();
+      else if (!this.wire.writing) await this.wire.setOutput(path.dirname(this.recorder.file), this.gameFrame).catch(() => {});
     }
     if (this.gameFrame) {
       await inPage(this.gameFrame, `window.__BBFlashRuntime?.onHubMessage?.({ type: "diagnostic_config", enabled: ${arg(this.diagnostics)} });`).catch(() => {});
@@ -203,10 +198,29 @@ class GameLauncher extends EventEmitter {
   async closeRecorder() {
     const recorder = this.recorder;
     this.recorder = null;
+    try { await this.wire?.setOutput(null); } catch {}
+    try { await recorder?.close(); } catch {}
+  }
+
+  // Passive CDP observer of the game socket for the whole connection (06/10):
+  // the original launcher and 0.1.18 with the combat log, the two setups that
+  // played right, both had it attached. Writes only while the log is on.
+  async startWire() {
+    if (this.wire || !this.page) return;
+    const dir = this.diagnostics && this.recorder ? path.dirname(this.recorder.file) : null;
+    try {
+      this.wire = await observeWire(this.page, dir, (message) => this.log(`Registro de conexión: ${message}`));
+      if (dir && this.gameFrame) await this.wire.anchor(this.gameFrame).catch(() => this.log("Registro de conexión: no se pudo sincronizar el reloj."));
+    } catch (error) {
+      this.wire = null;
+      this.log(`Observador de conexión no disponible: ${error.message}`);
+    }
+  }
+
+  async stopWire() {
     const wire = this.wire;
     this.wire = null;
     try { await wire?.close(); } catch {}
-    try { await recorder?.close(); } catch {}
   }
 
   // ---- Account (stored encrypted with the Windows user's key, DPAPI) --------
@@ -507,6 +521,7 @@ class GameLauncher extends EventEmitter {
     this.startAvatarRead();
     this.startPriorityBoost();
     this.startPortraitRead();
+    await this.startWire();
 
     const closed = () => {
       if (this.state !== "ready") return;
@@ -622,6 +637,7 @@ class GameLauncher extends EventEmitter {
     this.stopPriorityBoost();
     this.stopPortraitRead();
     await this.closeRecorder();
+    await this.stopWire();
     this.gameFrame = null;
     this.page = null;
     try { this.bridge?.stop(); } catch {}
@@ -642,6 +658,7 @@ class GameLauncher extends EventEmitter {
     this.stopPriorityBoost();
     this.stopPortraitRead();
     void this.closeRecorder();
+    void this.stopWire();
     try { this.bridge?.stop(); } catch {}
     this.bridge = null;
   }
