@@ -175,7 +175,7 @@ check("core modes, persistence, reconnect and stop preserve isolation", () => {
     core.applyStepClick({enabled:true});core.stopModes();assert.equal(core.stepClick.enabled,false);
     core.applyStepClick({enabled:true});core.registerSwfSocket({destroy(){}},{host:"127.0.0.1",port:1});assert.equal(core.stepClick.enabled,false);
     const restored=new ControllerCore({ringBoard:false,settingsPath});assert.equal(restored.stepClick.enabled,false);assert.equal(restored.stepClick.startMs,360);restored.stop();
-    assert.deepEqual(normalizeStepClick({startMs:600,endMs:100,clicks:999}),{enabled:false,source:"PAIR",startMs:600,endMs:601,intervalMs:1});
+    assert.deepEqual(normalizeStepClick({startMs:600,endMs:100,clicks:999}),{enabled:false,source:"PAIR",pattern:"CUSTOM",momentMs:375,startMs:600,endMs:601,intervalMs:1});
     core.applyStepClick({intervalMs:13});assert.equal(core.stepClick.intervalMs,13);
     core.handleSwfMessage({type:'step_click_state',status:{enabled:true,steps:20,crossing:{targetId:7,closestMs:330,durationMs:600,contactWindows:[{fromMs:120,toMs:210}],resolutionMs:16,samples:38}}});
     assert.equal(core.stepClickStatus.crossing.closestMs,330);assert.equal(core.stepClickStatus.steps,20);
@@ -269,7 +269,7 @@ check('PAIR selected anchors cannot time another ficha; a new self step can use 
 check('valid encounter survives distant steps and window edits but never another ficha',()=>{
  const f=fixture();f.configure();f.observe();const avatars=f.q.state.providers.renderer.instance.avatars;
  const a=avatars.get(1),b=avatars.get(7);a.screenPos={x:0,y:0};b.screenPos={x:5,y:0};b.position={x:2,y:2};
- f.q.stepClickSampleCrossing();f.c.time=1100;f.q.stepClickSampleCrossing();f.c.time=1600;f.q.stepClickSampleCrossing();
+ for(let phase=0;phase<600;phase+=20){f.c.time=1000+phase;f.q.stepClickSampleCrossing();}f.c.time=1600;f.q.stepClickSampleCrossing();
  assert.equal(f.api.status().stepClick.lastEncounter.targetId,7);
  b.position={x:20,y:20};f.observe();f.c.time=1700;f.q.stepClickSampleCrossing();f.c.time=1800;f.q.stepClickSampleCrossing();f.c.time=2200;f.q.stepClickSampleCrossing();
  assert.equal(f.api.status().stepClick.lastEncounter.contactWindows.length,1);
@@ -279,5 +279,58 @@ check('valid encounter survives distant steps and window edits but never another
 check('selected click reports planned send and estimated arrival separately',()=>{
  const f=fixture();f.q.state.serverPingMs=160;f.configure();f.observe();const p=f.plan();f.fire(p,0,2);
  const last=f.api.status().stepClick.last;assert.equal(last.plannedPhaseMs,350);assert.equal(last.phaseMs,352);assert.equal(last.latenessMs,2);assert.equal(last.estimatedLandingMs,512);assert.equal(last.targetId,7);
+});
+check('single sends exactly at the configured moment with normal delivery tolerance',()=>{
+ const f=fixture();f.configure({pattern:'SINGLE',momentMs:262});f.observe();const p=f.plan();
+ assert.deepEqual(Array.from(p.shots,s=>s.dueAt),[1262]);f.fire(p,0,2);
+ assert.deepEqual(f.targetIds(),[7]);assert.equal(f.api.status().stepClick.last.plannedPhaseMs,262);
+ assert.equal(f.api.status().stepClick.last.phaseMs,264);
+});
+check('three attempts are symmetric and clipped without moving the configured moment',()=>{
+ for(const [moment,duration,phases] of [[375,600,[355,375,395]],[0,600,[0,20]],[599,600,[579,599]],[25,30,[5,25]]]){
+ const f=fixture();f.configure({pattern:'TRIPLE',momentMs:moment});f.observe(f.walk(1,duration));
+ assert.deepEqual(Array.from(f.plan().shots,s=>s.dueAt-1000),phases);
+ }
+});
+check('changing the moment invalidates all retained single and triple callbacks',()=>{
+ const f=fixture();f.configure({pattern:'SINGLE',momentMs:200});f.observe();const old=f.plan();
+ f.api.onHubMessage({type:'step_click_config',momentMs:220});f.fire(old,0);assert.equal(f.sends.length,0);
+ f.c.time=1600;f.observe();assert.deepEqual(Array.from(f.plan().shots,s=>s.dueAt-1600),[220]);
+});
+check('new configs are single but old intervals survive migration, edits and persistence',()=>{
+ const {ControllerCore,normalizeStepClick}=require('../electron/controller-core.cjs');
+ assert.equal(normalizeStepClick({}).pattern,'SINGLE');
+ assert.equal(normalizeStepClick({startMs:300,endMs:430,intervalMs:17}).pattern,'CUSTOM');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bb-step-pattern-')),settingsPath=path.join(dir,'settings.json');
+ fs.writeFileSync(settingsPath,JSON.stringify({stepClick:{enabled:true,source:'SELF',startMs:300,endMs:430,intervalMs:17}}));
+ const core=new ControllerCore({ringBoard:false,settingsPath});core.sendToSwf=()=>true;
+ try{
+ assert.equal(core.stepClick.pattern,'CUSTOM');assert.equal(core.stepClick.intervalMs,17);assert.equal(core.stepClick.enabled,false);
+ core.applyStepClick({pattern:'SINGLE',momentMs:262});core.applyStepClick({enabled:false});assert.equal(core.stepClick.pattern,'SINGLE');
+ core.applyStepClick({intervalMs:19});assert.equal(core.stepClick.pattern,'CUSTOM');assert.equal(core.stepClick.startMs,300);
+ core.applyStepClick({pattern:'TRIPLE',momentMs:280});
+ const restored=new ControllerCore({ringBoard:false,settingsPath});assert.equal(restored.stepClick.pattern,'TRIPLE');assert.equal(restored.stepClick.momentMs,280);restored.stop();
+ }finally{core.stop();}
+});
+check('blue encounter never updates from a partial approach, and includes movement context',()=>{
+ const f=fixture();f.configure({source:'SELF'});f.observe();const a=f.q.state.providers.renderer.instance.avatars.get(1),b=f.q.state.providers.renderer.instance.avatars.get(7);
+ a.screenPos={x:0,y:0};b.screenPos={x:5,y:0};b.position={x:2,y:2};
+ for(let phase=0;phase<600;phase+=20){f.c.time=1000+phase;f.q.stepClickSampleCrossing();}f.c.time=1600;f.q.stepClickSampleCrossing();
+ const complete=f.api.status().stepClick.lastEncounter;assert.equal(complete.complete,true);assert.equal(complete.motionKind,'SELF');assert.equal(complete.source,'SELF');
+ assert.equal(complete.clockSource,'socket_worker');assert.equal(complete.referenceId,1);
+ f.observe();f.c.time=1620;f.q.stepClickSampleCrossing();f.c.time=1640;b.screenPos={x:0,y:0};f.q.stepClickSampleCrossing();
+ assert.equal(f.api.status().stepClick.lastEncounter.closestMs,complete.closestMs);
+ f.c.time=1660;f.observe();assert.equal(f.api.status().stepClick.lastEncounter.closestMs,complete.closestMs);
+});
+check('old connected step runtimes cannot silently substitute their interval for a single moment',()=>{
+ const {ControllerCore}=require('../electron/controller-core.cjs');
+ const core=new ControllerCore({ringBoard:false,settingsPath:path.join(os.tmpdir(),'missing-bb-step-cap-'+process.pid+'.json')});
+ core.persistSettings=()=>{};core.emitSnapshot=()=>{};core.sendToSwf=()=>{};core.swfSocket={destroy(){}};
+ core.handleSwfMessage({type:'step_click_state',status:{enabled:false,source:'PAIR',startMs:350,endMs:400,intervalMs:10}});
+ assert.throws(()=>core.applyStepClick({enabled:true,pattern:'SINGLE',momentMs:262}),/Reabre el juego/);
+ assert.equal(core.stepClick.enabled,false);
+ core.handleSwfMessage({type:'step_click_state',status:{enabled:false,source:'PAIR',pattern:'SINGLE',momentMs:375}});
+ core.applyStepClick({enabled:true,pattern:'SINGLE',momentMs:262});assert.equal(core.stepClick.enabled,true);assert.equal(core.stepClick.momentMs,262);
+ core.stop();
 });
 console.log(`PASS ${count} step autoclick regression groups`);

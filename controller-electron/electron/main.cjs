@@ -217,7 +217,7 @@ function wireIpc() {
   handle("controller:applyStepWalk", (_event, payload) => core.applyStepWalk(payload || {}));
   handle("controller:applyFreeFire", (_event, payload) => core.applyFreeFire(payload || {}));
   handle("controller:applySimon", (_event, payload) => core.applySimon(payload && typeof payload === "object" ? { enabled: payload.enabled, delayMs: payload.delayMs } : {}));
-  handle("controller:applyStepClick", (_event, payload) => core.applyStepClick(payload && typeof payload === "object" ? { enabled: payload.enabled, source: payload.source, startMs: payload.startMs, endMs: payload.endMs, intervalMs: payload.intervalMs, clicks: payload.clicks } : {}));
+  handle("controller:applyStepClick", (_event, payload) => core.applyStepClick(payload && typeof payload === "object" ? { enabled: payload.enabled, source: payload.source, pattern: payload.pattern, momentMs: payload.momentMs, startMs: payload.startMs, endMs: payload.endMs, intervalMs: payload.intervalMs, clicks: payload.clicks } : {}));
   handle("controller:setAllies", (_event, value) => core.setAllies(value));
   handle("controller:toggleAlly", (_event, value) => core.toggleAlly(value && typeof value === "object" ? { accountId: value.accountId, name: value.name } : null));
   handle("controller:addAllyByName", (_event, name) => core.addAllyByName(typeof name === "string" ? name : ""));

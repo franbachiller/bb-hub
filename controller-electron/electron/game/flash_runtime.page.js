@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "12102026_html5_step_click_encounter_preview";
+  const BRIDGE_BUILD = "12102026_html5_selected_step_controls_preview";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -79,6 +79,7 @@
     timing: {
       enabled: false,
       source: "STEP",
+      targetMode: "AUTO",
       stepAnchor: "SELF",
       start: 435,
       end: 750,
@@ -642,7 +643,7 @@
   // movement, not an absolute server clock. Anchor on worker delivery, before
   // the client's RAF queue; never invent subsequent steps while nobody walks.
   const stepClick = {
-    enabled: false, source: "PAIR", startMs: 350, endMs: 400, intervalMs: 10,
+    enabled: false, source: "PAIR", pattern: "SINGLE", momentMs: 375, startMs: 350, endMs: 400, intervalMs: 10,
     generation: 0, worker: null, workerUrl: "", clock: null,
     sent: 0, skipped: 0, errors: 0, steps: 0, last: null, reason: "off",
     early: new Map(), packetAt: new Map(), nativeSeen: new WeakMap(), monitor: null,
@@ -670,6 +671,7 @@
     const phase = c ? Math.max(0, t - c.at) : null;
     return {
       enabled: stepClick.enabled, source: stepClick.source,
+      pattern: stepClick.pattern, momentMs: stepClick.momentMs,
       startMs: stepClick.startMs, endMs: stepClick.endMs, intervalMs: stepClick.intervalMs,
       durationMs: c?.durationMs ?? null, phaseMs: phase == null ? null : Math.min(phase, c.durationMs),
       running: Boolean(c && phase < c.durationMs), referenceId: c?.id ?? -1,
@@ -693,6 +695,8 @@
       closestContactMs: trace.closestContactMs ?? null,
       distancePx: trace.distancePx, contactFromMs: trace.contactFromMs, contactToMs: trace.contactToMs,
       contactWindows: trace.contactWindows, resolutionMs: trace.resolutionMs, samples: trace.samples,
+      source: trace.source, clockSource: trace.clockSource, referenceId: trace.referenceId,
+      motionKind: trace.movesSelf ? (trace.movesTarget ? "BOTH" : "SELF") : (trace.movesTarget ? "SELECTED" : "STILL"),
       complete: trace.complete, active: trace === stepClick.trace };
   }
 
@@ -707,11 +711,15 @@
     if (!trace) return;
     trace.complete = complete;
     stepClick.lastCrossing = trace;
-    if (trace.samples >= 2 && trace.contactWindows.length) stepClick.lastEncounter = trace;
+    // A partial approach is not a measured crossing. Keep the prior completed
+    // encounter visible until another complete one replaces it.
+    if (complete && trace.samples >= 2 && trace.contactWindows.length) stepClick.lastEncounter = trace;
     stepClick.trace = null;
     if (trace.samples >= 2) sendDiagnostic("step_crossing", {
       targetId: trace.targetId, durationMs: trace.durationMs, closestMs: trace.closestMs,
       closestContactMs: trace.closestContactMs ?? null,
+      source: trace.source, clockSource: trace.clockSource, referenceId: trace.referenceId,
+      motionKind: trace.movesSelf ? (trace.movesTarget ? "BOTH" : "SELF") : (trace.movesTarget ? "SELECTED" : "STILL"),
       distancePx: trace.distancePx, contactFromMs: trace.contactFromMs, contactToMs: trace.contactToMs,
       resolutionMs: trace.resolutionMs, samples: trace.samples, complete
     });
@@ -750,6 +758,7 @@
     if (!trace || trace.self !== self || trace.target !== target || trace.generation !== stepClick.generation) {
       if (stepClick.lastCrossing && (stepClick.lastCrossing.self !== self || stepClick.lastCrossing.target !== target)) stepClick.lastCrossing = null;
       trace = { self, target, targetId: selection.id, generation: stepClick.generation, durationMs: c.durationMs,
+        source: stepClick.source, clockSource: c.hook, referenceId: c.id, movesSelf: false, movesTarget: false,
         closestMs: null, distancePx: null, minDistance: Infinity, contactFromMs: null, contactToMs: null,
         closestContactMs: null, minContactDistance: Infinity,
         contactWindows: [], wasContact: false,
@@ -759,6 +768,13 @@
     if (trace.lastAt === at) return;
     if (trace.lastAt != null) trace.resolutionMs = Math.max(trace.resolutionMs || 0, at - trace.lastAt);
     trace.lastAt = at; trace.samples++;
+    const moving = avatar => {
+      const animation = avatar?.currentAnimation;
+      return animation?.getType?.() === "WalkingAnimation" && !animation.hasAnimationFinished &&
+        Number(animation.elapsedMs) < Number(animation.time);
+    };
+    trace.movesSelf ||= c.ids.has(inferSelfId()) || moving(self);
+    trace.movesTarget ||= c.ids.has(selection.id) || moving(target);
     const distance = Math.hypot(p.x - q.x, p.y - q.y);
     if (distance < trace.minDistance) {
       trace.minDistance = distance;
@@ -892,7 +908,8 @@
     const lateness = t - Number(msg.dueAt);
     let reason = "";
     const selection = stepClickSelection();
-    if (!Number.isFinite(lateness) || lateness < 0 || lateness > 8 || phase < stepClick.startMs || phase >= stepClick.endMs || phase >= c.durationMs) reason = "late";
+    if (!Number.isFinite(lateness) || lateness < 0 || lateness > 8 || phase < 0 || phase >= c.durationMs ||
+        (stepClick.pattern === "CUSTOM" && (phase < stepClick.startMs || phase >= stepClick.endMs))) reason = "late";
     else if (stepClick.source === "SELECTED" && c.id !== selection?.id) reason = "waiting_step";
     else if (c.selectedAvatar && c.selectedAvatar !== sceneRenderer()?.avatars?.get?.(selection?.id)) reason = "waiting_step";
     else if (!selection) reason = "no_selection";
@@ -975,17 +992,25 @@
     stepClick.clock = { at, durationMs, id, hook, selectedAvatar, ids: new Set([id]), done: new Set() };
     if (!(hook === "native_animation" && old?.id === id && Math.abs(old.at - at) < 1)) stepClick.steps++;
     sendDiagnostic("step_clock", { referenceId:id, clockSource:hook, stepAt:at, durationMs,
+      pattern:stepClick.pattern,momentMs:stepClick.momentMs,
       startMs:stepClick.startMs,endMs:stepClick.endMs,intervalMs:stepClick.intervalMs,
       generation:stepClick.generation, previousSource:old?.hook||"", previousDurationMs:old?.durationMs??null,
       anchorDeltaMs:old?Math.round((at-old.at)*10)/10:null });
     stepClickPublish(true);
     if (!stepClick.enabled || !state.hubConnected) return;
-    const end = Math.min(stepClick.endMs, durationMs);
-    if (stepClick.startMs >= end) { stepClick.reason = "window_outside_step"; stepClickPublish(true); return; }
-    const count = Math.ceil((end - stepClick.startMs) / stepClick.intervalMs);
-    if (count > 256) { stepClick.reason = "interval_too_small"; stepClickPublish(true); return; }
-    const shots = Array.from({ length: count }, (_, index) => {
-      const dueAt = at + stepClick.startMs + stepClick.intervalMs * index;
+    let phases;
+    if (stepClick.pattern === "CUSTOM") {
+      const end = Math.min(stepClick.endMs, durationMs);
+      const count = Math.max(0, Math.ceil((end - stepClick.startMs) / stepClick.intervalMs));
+      if (count > 256) { stepClick.reason = "interval_too_small"; stepClickPublish(true); return; }
+      phases = Array.from({ length: count }, (_, i) => stepClick.startMs + stepClick.intervalMs * i);
+    } else {
+      phases = stepClick.pattern === "TRIPLE" ? [stepClick.momentMs - 20, stepClick.momentMs, stepClick.momentMs + 20] : [stepClick.momentMs];
+      phases = phases.filter(phase => phase >= 0 && phase < durationMs);
+    }
+    if (!phases.length) { stepClick.reason = "window_outside_step"; stepClickPublish(true); return; }
+    const shots = phases.map((phase, index) => {
+      const dueAt = at + phase;
       return { index, dueAt, dueEpoch: performance.timeOrigin + dueAt };
     });
     try { stepClickEnsureWorker().postMessage({ type: "arm", generation: stepClick.generation, shots }); }
@@ -994,15 +1019,19 @@
 
   function applyStepClickConfig(msg) {
     const wasEnabled = stepClick.enabled, oldSource = stepClick.source;
-    const previous = JSON.stringify([stepClick.enabled, stepClick.source, stepClick.startMs, stepClick.endMs, stepClick.intervalMs]);
+    const configKey = () => JSON.stringify([stepClick.enabled, stepClick.source, stepClick.pattern, stepClick.momentMs, stepClick.startMs, stepClick.endMs, stepClick.intervalMs]);
+    const previous = configKey();
     if (typeof msg.enabled === "boolean") stepClick.enabled = msg.enabled;
     if (["PAIR", "SELF", "SELECTED", "ROOM"].includes(msg.source)) stepClick.source = msg.source;
+    if (["SINGLE", "TRIPLE", "CUSTOM"].includes(msg.pattern)) stepClick.pattern = msg.pattern;
+    else if (["startMs", "endMs", "intervalMs", "clicks"].some(key => msg[key] != null)) stepClick.pattern = "CUSTOM";
+    if (msg.momentMs != null && Number.isFinite(Number(msg.momentMs))) stepClick.momentMs = Math.round(clamp(Number(msg.momentMs), 0, 4999));
     if (Number.isFinite(Number(msg.startMs))) stepClick.startMs = Math.round(clamp(Number(msg.startMs), 0, 4999));
     if (Number.isFinite(Number(msg.endMs))) stepClick.endMs = Math.round(clamp(Number(msg.endMs), stepClick.startMs + 1, 5000));
     stepClick.endMs = Math.max(stepClick.startMs + 1, stepClick.endMs);
     if (Number.isFinite(Number(msg.intervalMs))) stepClick.intervalMs = Math.round(clamp(Number(msg.intervalMs), 1, 5000));
     else if (Number.isFinite(Number(msg.clicks))) stepClick.intervalMs = Math.max(1, Math.ceil((stepClick.endMs - stepClick.startMs) / clamp(Number(msg.clicks), 1, 64)));
-    const changed = previous !== JSON.stringify([stepClick.enabled, stepClick.source, stepClick.startMs, stepClick.endMs, stepClick.intervalMs]);
+    const changed = previous !== configKey();
     if (changed) stepClickCancel(stepClick.enabled ? "waiting_step" : "off", true,
       wasEnabled && stepClick.enabled && oldSource === stepClick.source);
     if (stepClick.enabled) {
@@ -1021,7 +1050,7 @@
       try { stepClickEnsureWorker(); } catch { stepClick.errors++; stepClick.reason = "worker_error"; }
       stepClickMonitorStart();
     }
-    if (changed) sendDiagnostic("step_click_config", { enabled: stepClick.enabled, source: stepClick.source, startMs: stepClick.startMs, endMs: stepClick.endMs, intervalMs: stepClick.intervalMs });
+    if (changed) sendDiagnostic("step_click_config", { enabled: stepClick.enabled, source: stepClick.source, pattern: stepClick.pattern, momentMs: stepClick.momentMs, startMs: stepClick.startMs, endMs: stepClick.endMs, intervalMs: stepClick.intervalMs });
     sendState();
   }
 
@@ -1047,6 +1076,28 @@
     const avatar = sceneRenderer()?.avatars?.get?.(id);
     return avatar && !avatar.__departing && !avatar._removed &&
       (!expected || avatar === expected) ? avatar : null;
+  }
+
+  function timingSelectedOnly() {
+    return state.timing.enabled && state.timing.targetMode === "SELECTED";
+  }
+
+  function freshTimingSelection() {
+    let ficha;
+    try { ficha = providerInstance(state.providers.selection)?.avatarFichado; } catch { return null; }
+    if (ficha?.userSpaceId == null) return null;
+    const id = asId(ficha?.userSpaceId);
+    const selfId = inferSelfId();
+    const avatar = id == null ? null : currentTargetAvatar(id);
+    if (selfId < 0 || id == null || id < 0 || id === selfId || !avatar || ficha !== avatar || isStale(id) ||
+        state.tickEngine.out.has(id) || isAlly(id)) return null;
+    return { id, avatar, name: String(avatar.avatarInfo?.username || "") };
+  }
+
+  function timingTargetAllowed(id, avatar) {
+    if (!timingSelectedOnly()) return true;
+    const selection = freshTimingSelection();
+    return Boolean(selection && selection.id === id && (!avatar || selection.avatar === avatar));
   }
 
   function refreshActorIdentities() {
@@ -1987,10 +2038,20 @@
       return false;
     }
     if (stepClick.enabled && !["CTRL", "manual"].includes(reason)) return false;
+    const selectedOnly = timingSelectedOnly();
+    const selection = selectedOnly ? freshTimingSelection() : null;
     let id = asId(targetId);
-    if ((id == null || id < 0) && ["CTRL", "manual"].includes(reason)) id = selectedId();
+    if ((id == null || id < 0) && ["CTRL", "manual"].includes(reason) && !selectedOnly) id = selectedId();
     if (id == null || id < 0 || id === inferSelfId()) return false;
-    if (!["CTRL", "manual"].includes(reason)) {
+    // Board commands also arrive as CTRL. Every Hub/motor request obeys the
+    // current native ficha; a cleared or recycled selection has no fallback.
+    if (selectedOnly && (!selection || selection.id !== id || (options?.avatar && options.avatar !== selection.avatar))) {
+      state.lastFireResult = { targetId: id, reason, calls: 0, sentCount: 0, errors: 0,
+        held: selection ? "selection_changed" : "no_selection", ts: now() };
+      sendDiagnostic("fire_attempt", state.lastFireResult);
+      return false;
+    }
+    if (!["CTRL", "manual"].includes(reason) || selectedOnly) {
       refreshEliminated();
       const avatar = sceneRenderer()?.avatars?.get?.(id);
       const held = state.tickEngine.out.has(id) ? "target_out" :
@@ -2042,6 +2103,7 @@
     try {
       for (let i = 0; i < packets; i++) {
         if (i > 0) spinUntil(now() + TICK_BURST_GAP_MS);
+        if (selectedOnly && (!timingSelectedOnly() || !timingTargetAllowed(id, selection.avatar))) break;
         try {
           if (bypass) upper.lastUpperAt = -1e9;
           upper.upperRequest(id);
@@ -3637,6 +3699,9 @@
     const selfActor = ensureActorFromRenderer(selfId);
     if (!selfActor) return null;
     const t = now();
+    const selectedOnly = timingSelectedOnly();
+    const selection = selectedOnly ? freshTimingSelection() : null;
+    if (selectedOnly && !selection) return null;
     let tickBetween = false;
     let nextTick = null;
     if (E.origin != null && E.batches.length >= 1) {
@@ -3655,7 +3720,7 @@
     let second = null;
     for (const rawId of renderer?.avatars?.keys?.() || []) {
       const id = asId(rawId);
-      if (id == null || id === selfId || id === exclude || E.out.has(id) || isMuted(id) || isAlly(id) || isStale(id)) continue;
+      if (id == null || id === selfId || id === exclude || (selectedOnly && id !== selection.id) || E.out.has(id) || (!selectedOnly && isMuted(id)) || isAlly(id) || isStale(id)) continue;
       if ((E.down.get(id) || 0) > t) continue;
       const a = ensureActorFromRenderer(id);
       if (!a) continue;
@@ -3687,7 +3752,8 @@
       // some near 0 (July, all players: median 139-165 vs 92-100 after contact).
       const walking = a.startAt >= E.lastBatchAt - 30 && Boolean(a.dirX || a.dirY);
       const rank = p * 1000 * (walking ? WALKER_BONUS : 1) - dist;
-      const cand = { id, score: Number(p.toFixed(3)), dist, rank, walking, face: faceSide(from.x, from.y, a.toX, a.toY) };
+      const cand = { id, score: Number(p.toFixed(3)), dist, rank, walking, face: faceSide(from.x, from.y, a.toX, a.toY),
+        ...(selectedOnly ? { avatar: selection.avatar } : {}) };
       if (!best || rank > best.rank) {
         second = best;
         best = cand;
@@ -3760,7 +3826,9 @@
     if (state.react.pending && now() - state.react.pendingAt < 50) return;
     state.react.pending = true;
     state.react.pendingAt = now();
+    const seq = state.seq;
     setTimeout(() => {
+      if (state.seq !== seq) return;
       state.react.pending = false;
       const bounced = state.tickEngine.pendingBounce;
       if (bounced && bounced.n === state.tickEngine.lastBatchTick) {
@@ -3783,7 +3851,7 @@
     let best = null;
     for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
       const id = asId(rawId);
-      if (id == null || id === selfId || E.out.has(id) || isMuted(id) || isAlly(id) || isStale(id)) continue;
+      if (id == null || id === selfId || !timingTargetAllowed(id) || E.out.has(id) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || isStale(id)) continue;
       if ((E.down.get(id) || 0) > t) continue;
       const a = ensureActorFromRenderer(id);
       if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
@@ -3858,7 +3926,7 @@
       // still eligible; otherwise use a fresh sibling from this same batch.
       let chosen = null;
       for (const [id, avatar] of pending.candidates) {
-        if (!avatar || sceneRenderer()?.avatars?.get?.(id) !== avatar || E.out.has(id) ||
+        if (!avatar || !timingTargetAllowed(id, avatar) || sceneRenderer()?.avatars?.get?.(id) !== avatar || E.out.has(id) ||
             isMuted(id) || isAlly(id) || isStale(id) || (E.down.get(id) || 0) > now() ||
             rivalLocked(id, now() + lead)) continue;
         const a = ensureActorFromRenderer(id);
@@ -3874,7 +3942,7 @@
       const speculative = E.lastBatchTick != null &&
         (E.tickTargets.get(E.lastBatchTick) === id || E.tickTargets2.get(E.lastBatchTick) === id);
       const reason = speculative ? "REACT_FALLBACK" : "REACT";
-      const ok = firePunch(id, reason, { bypassThrottle: true, packets: 1 });
+      const ok = firePunch(id, reason, { bypassThrottle: true, packets: 1, avatar: pending.candidates.get(id) });
       if (ok) state.react.fired++;
       sendDiagnostic("react_fallback", { targetId: id, originalTargetId: pick.id, candidates: pending.candidates.size,
         waitMs: Math.round(now() - pending.bornAt), reason, ok, batchAt: pending.batchAt });
@@ -3889,6 +3957,7 @@
     const cfg = state.timing.tick;
     const selfId = inferSelfId();
     if (selfId == null || selfId < 0 || !ensureActorFromRenderer(selfId)) return { skip: "no_self" };
+    if (timingSelectedOnly() && !freshTimingSelection()) return { skip: "no_selection" };
     const known = t - (E.origin + n * TICK_MS) > 30;
     if (known && !cfg.reactive) return { skip: "reactive_off" };
     if (!known && !cfg.blind) return { skip: "blind_off" };
@@ -3903,7 +3972,8 @@
     // whose best candidate WAS the rival, at p < 0.005 (a standing rival one step
     // from our contact tile: the July model says 0.001-0.004, September says ~5.5%);
     // they went 48-40 on the reaction alone. Only ticks with no candidate at 0.02
-    // change (the pick order does not); a silent id gets muted after 3 clicks.
+    // change (the pick order does not). Silence alone cannot exclude a native
+    // Ring player; the protection/NPC filter remains outside that case.
     const pick = threatPick(landing, known ? 0.99 : cfg.single ? TICK_BLIND_MIN_P : 0.2);
     if (!pick) return { skip: known ? "no_contact" : "sin_amenaza" };
     // Low ping: do not guess; the reaction to the batch lands in time, at the right id.
@@ -3917,7 +3987,8 @@
     // Off: 25/09 live, the second click was never answered in 14 ties (the
     // server ignores a request 3 ms after another).
     const dual = !state.punchIsolation.enabled && DUAL_TIE && !known && cfg.single && two && two.score >= 0.1 && two.score >= pick.score * 0.5 && pick.score < 0.9 ? two : null;
-    return { id: pick.id, reactive: known, score: pick.score, face: pick.face, dual };
+    return { id: pick.id, reactive: known, score: pick.score, face: pick.face, dual,
+      ...(pick.avatar ? { avatar: pick.avatar } : {}) };
   }
 
   // 01/10: the tick decision reads only what the batch already delivered, so it
@@ -3942,6 +4013,7 @@
       const pick = tickPickTarget(plan.n, t0, landing);
       const best = !pick || pick.skip ? threatPick(landing, 0) : null;
       plan.pre = { pick, best, avatar: pick && !pick.skip ? sceneRenderer()?.avatars?.get?.(pick.id) : null,
+        selectedAvatar: timingSelectedOnly() ? freshTimingSelection()?.avatar || null : null,
         ms: Math.round((now() - t0) * 10) / 10 };
     }, 0);
   }
@@ -3954,6 +4026,96 @@
   function tickPreflightInvalidate() {
     for (const plan of state.tickEngine.plans.values()) if (plan.pre) plan.pre = null;
     tickPreflightSchedule();
+  }
+
+  // The isolated profile retains one primary per grid tick. If its normal
+  // landing is still locked, reuse that same ticket just after a known upper
+  // lock/coco ends, only for an enemy already in lateral contact.
+  function tickIsolatedRecoveryBoundary() {
+    const E = state.tickEngine;
+    const t = now();
+    if (E.selfLockKind === "ROUND" && E.selfLockEnd > t) return null;
+    let boundary = E.selfLockKind === "UPPER" && E.selfLockEnd > t ?
+      { end: E.selfLockEnd, kind: "UPPER", coco: null } : null;
+    exitSyncSelfCoco();
+    const coco = state.exitMode.self;
+    const cocoEnd = coco ? coco.endAt + Math.max(0, state.exitMode.U - 5) : 0;
+    if (coco && Number.isFinite(cocoEnd) && cocoEnd > t && (!boundary || cocoEnd > boundary.end)) {
+      boundary = { end: cocoEnd, kind: "COCO", coco };
+    }
+    return boundary;
+  }
+
+  function tickIsolatedRecoveryWaiter(landing, retained = null) {
+    const E = state.tickEngine;
+    const selfId = inferSelfId();
+    const me = ensureActorFromRenderer(selfId);
+    if (!me || selfId == null || selfId < 0 || E.selfOut || E.out.has(selfId)) return null;
+    const t = now();
+    let best = null;
+    const ids = retained ? [retained.id] : sceneRenderer()?.avatars?.keys?.() || [];
+    for (const rawId of ids) {
+      const id = asId(rawId);
+      if (id == null || id === selfId || E.out.has(id) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || isStale(id) ||
+          (E.down.get(id) || 0) > t || rivalLocked(id, landing)) continue;
+      const avatar = currentTargetAvatar(id, retained?.avatar);
+      if (!avatar || !timingTargetAllowed(id, avatar)) continue;
+      const a = ensureActorFromRenderer(id);
+      if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
+      const since = t - (a.startAt || 0);
+      if (!best || since > best.since) best = { id, avatar, since, score: 1, reactive: true,
+        face: faceSide(me.toX, me.toY, a.toX, a.toY) };
+    }
+    return best;
+  }
+
+  function tickDeferIsolatedRecovery(plan, msg, index) {
+    const E = state.tickEngine;
+    const shot = plan.shots[index];
+    if (!state.punchIsolation.enabled || !tickEnabled() || msg.seq !== state.seq || plan.recovery ||
+        E.selfOut || now() < E.pausedUntil || state.outboundUpperSeq !== plan.punchSeq ||
+        plan.shots.length !== 1 || !shot || shot.k !== 0 || shot.b !== 0 || shot.repeat || shot.sweep) return false;
+    const boundary = tickIsolatedRecoveryBoundary();
+    if (!boundary) return false;
+    const origin = plan.o ?? E.origin;
+    if (!Number.isFinite(origin)) return false;
+    const tickAt = origin + plan.n * TICK_MS;
+    const oldLanding = tickAt + shot.phase;
+    const landing = boundary.end + UNLOCK_MARGIN_MS;
+    // Preserve the next tick's T+13 primary and the shared 100 ms server gap.
+    const nextPrimary = tickAt + TICK_MS + state.punchIsolation.phaseMs;
+    if (oldLanding >= boundary.end || landing <= oldLanding || landing >= tickAt + TICK_MS ||
+        landing > nextPrimary - GUARD_LOCK_MS - 1 || selfLocked(landing) || exitBlocksLanding(landing)) return false;
+    const dueAt = landing - rttEstimateMs() - E.corr;
+    if (dueAt < now() + 2) return false;
+    const waiter = tickIsolatedRecoveryWaiter(landing);
+    if (!waiter) return false;
+    const planId = `${String(msg.planId)}:RECOVERY`;
+    try {
+      ensureTimingWorker().postMessage({ type: "arm", planId, targetId: -1, stepAt: plan.n,
+        stepMs: TICK_MS, seq: state.seq, leadMs: 0, window: "TICK",
+        fires: [{ index: 0, dueAt, delayMs: Math.max(0, dueAt - now() - SPIN_EARLY_MS) }] });
+    } catch { return false; }
+    // The distinct ticket makes an already-delivered original callback inert.
+    E.plans.delete(String(msg.planId));
+    plan.shots = [{ ...shot, phase: landing - tickAt }];
+    plan.pre = null;
+    plan.recovery = { ...boundary, id: waiter.id, avatar: waiter.avatar, dueAt, landing,
+      punchSeq: state.outboundUpperSeq };
+    E.plans.set(planId, plan);
+    sendDiagnostic("tick_recovery", { stage: "armed", tick: plan.n, targetId: waiter.id,
+      lockKind: boundary.kind, lockEnd: boundary.end, oldPhase: shot.phase, phase: landing - tickAt });
+    return true;
+  }
+
+  function tickIsolatedRecoveryPick(plan) {
+    const E = state.tickEngine;
+    const recovery = plan.recovery;
+    if (!recovery || state.outboundUpperSeq !== recovery.punchSeq ||
+        (recovery.kind === "UPPER" && (recovery.end !== E.selfLockEnd || E.selfLockKind !== "UPPER")) ||
+        (recovery.kind === "COCO" && state.exitMode.self && state.exitMode.self !== recovery.coco) ||
+        selfLocked(recovery.landing) || exitBlocksLanding(recovery.landing)) return null;
+    return tickIsolatedRecoveryWaiter(recovery.landing, recovery);
   }
 
   function tickPump() {
@@ -4002,7 +4164,7 @@
     // o/lead: the frame the plan was armed in. Replies are judged against it,
     // not against the current origin (a refit in between used to shift err).
     E.plans.set(planId, { n, shots, burst: state.freeFire.enabled && !state.punchIsolation.enabled ? 1 : eff.burst,
-      fired: 0, burstTarget: null, o: E.origin, lead, punchIsolation: state.punchIsolation.enabled });
+      fired: 0, burstTarget: null, o: E.origin, lead, punchIsolation: state.punchIsolation.enabled, punchSeq: state.outboundUpperSeq });
     while (E.plans.size > 4) E.plans.delete(E.plans.keys().next().value);
     E.stats.planned++;
     try {
@@ -4025,6 +4187,7 @@
     const plan = E.plans.get(String(msg.planId || ""));
     if (!plan) return;
     const index = msg.index | 0;
+    if (tickDeferIsolatedRecovery(plan, msg, index)) return;
     plan.fired++;
     if (plan.fired >= plan.shots.length) E.plans.delete(String(msg.planId));
     if (!tickEnabled() || msg.seq !== state.seq) return;
@@ -4041,26 +4204,29 @@
     if (!shot) return;
     if (state.punchIsolation.enabled && (shot.k !== 0 || shot.b !== 0 || shot.repeat || shot.sweep)) return skip("punch_isolation");
     const phase = shot.phase;
-    if (exitBlocksLanding(E.origin + plan.n * TICK_MS + phase)) return skip("self_coco");
-    if (selfLocked(E.origin + plan.n * TICK_MS + phase)) return skip("traba");
+    const landing = plan.recovery?.landing ?? E.origin + plan.n * TICK_MS + phase;
+    if (exitBlocksLanding(landing)) return skip("self_coco");
+    if (selfLocked(landing)) return skip("traba");
     // The unlock click covers this moment (a second click would only hit the
     // server's 100 ms gap) - only if it has someone to hit: 26/09 it went out
     // with no target 102 times in 117, and the tick click was dropped anyway.
     const unlockLanding = E.unlock.end + UNLOCK_MARGIN_MS;
-    if (!state.punchIsolation.enabled && E.unlock.end && E.unlock.end === E.selfLockEnd && Math.abs(E.origin + plan.n * TICK_MS + phase - unlockLanding) < 120 &&
+    if (!state.punchIsolation.enabled && E.unlock.end && E.unlock.end === E.selfLockEnd && Math.abs(landing - unlockLanding) < 120 &&
         (unlockAmbusher(unlockLanding) || threatPick(unlockLanding, UNLOCK_MIN_PROB))) return skip("unlock");
     // A rival's unlock click covers this moment (a standing neighbour waking
     // up is surer than a guess, and a 144 here would block it).
-    if (runlockCovers(E.origin + plan.n * TICK_MS + phase)) return skip("runlock");
+    if (runlockCovers(landing)) return skip("runlock");
     let pick;
-    if (shot.repeat) {
+    if (plan.recovery) {
+      pick = tickIsolatedRecoveryPick(plan);
+      if (!pick) return skip("recovery_target_changed");
+    } else if (shot.repeat) {
       // Second click at the first click's target (whatever happened to the first).
       if (plan.burstTarget == null || plan.burstReactive) return;
       pick = { id: plan.burstTarget, reactive: false, score: plan.burstScore, repeat: true };
     } else if (shot.sweep) {
       // Only after a blind first click: the runner-up at the sweep landing.
       if (plan.burstTarget == null || plan.burstReactive) return;
-      const landing = E.origin + plan.n * TICK_MS + phase;
       const second = threatPick(landing, SWEEP_MIN_SCORE, plan.burstTarget);
       if (!second) {
         const primary = threatPick(landing, SWEEP_MIN_SCORE);
@@ -4083,19 +4249,23 @@
       // 01/10: precomputed at batch settle (same data); without a preflight
       // (no batch, late arm) the decision happens here, as before.
       let pre = plan.pre;
+      if (pre && timingSelectedOnly() && (pre.selectedAvatar || null) !== (freshTimingSelection()?.avatar || null)) {
+        plan.pre = null;
+        pre = null;
+      }
       if (pre?.pick && !pre.pick.skip &&
-          (E.out.has(pre.pick.id) || isStale(pre.pick.id) || isAlly(pre.pick.id) || isMuted(pre.pick.id) ||
-           (E.down.get(pre.pick.id) || 0) > t || rivalLocked(pre.pick.id, E.origin + plan.n * TICK_MS + phase) ||
+          (!timingTargetAllowed(pre.pick.id, pre.avatar) || E.out.has(pre.pick.id) || isStale(pre.pick.id) || isAlly(pre.pick.id) || (!timingSelectedOnly() && isMuted(pre.pick.id)) ||
+           (E.down.get(pre.pick.id) || 0) > t || rivalLocked(pre.pick.id, landing) ||
            !currentTargetAvatar(pre.pick.id, pre.avatar))) {
         plan.pre = null;
         pre = null;
       }
-      pick = pre ? pre.pick : tickPickTarget(plan.n, t, E.origin + plan.n * TICK_MS + phase);
+      pick = pre ? pre.pick : tickPickTarget(plan.n, t, landing);
       if (!pick || pick.skip) {
         E.stats.skipped++;
         E.stats.lastSkip = pick?.skip || "none";
         if (state.diagnostics.enabled) {
-          const best = pre ? pre.best : threatPick(E.origin + plan.n * TICK_MS + phase, 0);
+          const best = pre ? pre.best : threatPick(landing, 0);
           sendDiagnostic("tick_skip", { tick: plan.n, reason: pick?.skip || "none", bestId: best ? best.id : -1, bestP: best ? best.score : 0, bestDist: best ? best.dist : null, pre: pre ? 1 : 0 });
         }
         if (shot.k === 0) plan.burstTarget = null;
@@ -4121,13 +4291,23 @@
     const faced = state.timing.tick.single && !E.selfOut ? faceBeforeClick(pick.face) : false;
     spinUntil(Number(msg.dueAt));
     const sentAt = now();
+    if (plan.recovery) {
+      // An edge request delivered late must not steal the following primary.
+      // Prefer its actual armed deadline when the next plan already exists.
+      const following = E.plans.get(`TICK:${plan.n + 1}`);
+      const nextDue = following ? following.o + following.n * TICK_MS + following.shots[0].phase - following.lead :
+        E.origin + (plan.n + 1) * TICK_MS + state.punchIsolation.phaseMs - rttEstimateMs() - E.corr;
+      if (sentAt - plan.recovery.dueAt > 8) return skip("recovery_late");
+      if (nextDue - sentAt < GUARD_LOCK_MS + 1) return skip("recovery_next_gap");
+    }
     // A contact fallback/exit may have fired since this tick was armed. In
     // single mode the saved plan cannot consume that request's server gap.
     if (state.timing.tick.single && sentAt - (state.lastPunch.at ?? -1e9) < GUARD_LOCK_MS + 1) {
       if (shot.k === 0 && !shot.b) plan.burstTarget = null;
       return skip("shared_gap");
     }
-    const ok = firePunch(pick.id, pick.repeat ? "TICK_REPEAT" : pick.retry ? "TICK_RETRY" : pick.sweep ? "TICK_SWEEP" : pick.reactive ? "TICK_REACT" : "TICK_BLIND", { bypassThrottle: true });
+    const ok = firePunch(pick.id, pick.repeat ? "TICK_REPEAT" : pick.retry ? "TICK_RETRY" : pick.sweep ? "TICK_SWEEP" : pick.reactive ? "TICK_REACT" : "TICK_BLIND", { bypassThrottle: true,
+      avatar: plan.recovery?.avatar || (timingSelectedOnly() ? pick.avatar || plan.burstAvatar : undefined) });
     if (ok && pick.repeat) state.tickAdv.repeats++;
     if (ok && pick.sweep) {
       E.sweepStats.fired++;
@@ -4169,8 +4349,9 @@
       { window: "TICK", scheduler: "worker", tickPhase: phase, corrMs: Math.round(E.corr), rttMs: rttEstimateMs(), reactive: pick.reactive });
     sendDiagnostic("tick_fire", {
       tick: plan.n, index, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, score: pick.score, ok, face: faced ? pick.face : 0,
-      lateMs: late, corrMs: E.corr, origin: E.origin, rttMs: rttEstimateMs(), burst: state.punchIsolation.enabled ? 1 : state.tickBurst,
+      lateMs: late, corrMs: E.corr, origin: plan.recovery ? plan.o : E.origin, rttMs: rttEstimateMs(), burst: state.punchIsolation.enabled ? 1 : state.tickBurst,
       punchIsolation: state.punchIsolation.enabled, isolationPhaseMs: state.punchIsolation.enabled ? state.punchIsolation.phaseMs : null,
+      recovery: Boolean(plan.recovery), recoveryKind: plan.recovery?.kind ?? null,
       pre: plan.pre ? 1 : 0, preMs: plan.pre?.ms ?? null
     });
   }
@@ -4356,7 +4537,7 @@
     const avatar = currentTargetAvatar(id, shot.avatar);
     const seq = state.seq;
     const batchAt = E.lastBatchAt;
-    if (!avatar || !me || !a || E.out.has(id) || isMuted(id) || isAlly(id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
+    if (!avatar || !timingTargetAllowed(id, avatar) || !me || !a || E.out.has(id) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
     const lead = rttEstimateMs() + E.corr;
     let landAfter = 0;
     for (const x of E.shots) {
@@ -4367,7 +4548,7 @@
     E.bounceRetryTick = shot.n;
     const fire = () => {
       if (!tickEnabled() || state.seq !== seq || E.lastBatchAt !== batchAt ||
-          !currentTargetAvatar(id, avatar)) return;
+          !timingTargetAllowed(id, avatar) || !currentTargetAvatar(id, avatar)) return;
       const m = ensureActorFromRenderer(inferSelfId());
       const b = ensureActorFromRenderer(id);
       const at = now();
@@ -5060,6 +5241,7 @@
     // the tick click (often at the killer) left 3 ms later, inside the 100 ms gap.
     const pick = threatPick(landing, state.timing.tick.single ? TICK_BLIND_MIN_P : 0.2);
     if (pick) return pick.id;
+    if (timingSelectedOnly()) return null;
     const selfId = inferSelfId();
     const self = ensureActorFromRenderer(selfId);
     if (!self) return null;
@@ -5084,7 +5266,7 @@
         (msg.seq != null && msg.seq !== state.seq)) return;
     const shot = plan.shots[msg.index | 0];
     if (!shot) return;
-    if (plan.target != null && plan.avatar && !currentTargetAvatar(plan.target, plan.avatar)) {
+    if (plan.target != null && plan.avatar && (!timingTargetAllowed(plan.target, plan.avatar) || !currentTargetAvatar(plan.target, plan.avatar))) {
       plan.target = null;
       plan.avatar = null;
     }
@@ -5525,7 +5707,12 @@
 
   function tickHubSummary() {
     const E = state.tickEngine;
+    const selection = timingSelectedOnly() ? freshTimingSelection() : null;
     return {
+      targetMode: state.timing.targetMode,
+      fixedPhaseMs: state.punchIsolation.enabled ? state.punchIsolation.phaseMs : null,
+      selectedTargetId: selection?.id ?? -1,
+      selectedTargetName: selection?.name || "",
       lastTargetId: state.lastAutomaticPunch?.targetId ?? -1,
       lastTargetReason: state.lastAutomaticPunch?.reason || "",
       enabled: tickEnabled(),
@@ -6115,6 +6302,26 @@
   function applyTimingConfig(msg) {
     if (msg.enabled === true && stepClick.enabled) applyStepClickConfig({ enabled: false });
     const t = state.timing;
+    if ("targetMode" in msg) {
+      const targetMode = msg.targetMode === "SELECTED" ? "SELECTED" : "AUTO";
+      if (targetMode !== t.targetMode) {
+        t.targetMode = targetMode;
+        const E = state.tickEngine;
+        if (state.react.fallback?.timer) clearTimeout(state.react.fallback.timer);
+        state.react.fallback = null;
+        state.react.pending = false;
+        state.react.lastKey = "";
+        state.react.lateral.clear();
+        E.pendingBounce = null;
+        E.runlock.clear();
+        E.unlock.end = 0;
+        E.shots = [];
+        E.allShots = [];
+        E.tickTargets.clear();
+        E.tickTargets2.clear();
+        state.exitMode.plan = null;
+      }
+    }
     if ("enabled" in msg) t.enabled = Boolean(msg.enabled);
     if ("source" in msg) {
       let src = String(msg.source || "STEP").toUpperCase();
@@ -6597,7 +6804,7 @@
   }
 
   const SILENT_GAP_MS = 130; // server per-player gap (~100 ms) + jitter
-  const RING_MUTE_MS = 1800; // 3 ticks: in the Ring nobody is protected for long
+  const RING_MUTE_MS = 1800; // fallback for unverified entities, not valid Ring players
   // ---- No local 100 ms guard (30/09) ----------------------------------------------
   // upperRequest: if (now - lastUpperAt < 100) return. With the guard off, lastUpperAt
   // always reads as long ago, so no punch is dropped in the client (the server's own
@@ -6626,8 +6833,16 @@
   }
 
   // Engine clicks with no reply after RTT + 250 ms: three in a row at the same
-  // target and it is muted for 8 s (protected, NPC, a room without punches...).
-  // Not while we are out: then every click is ignored.
+  // target and outside Ring it is muted for 8 s (protected, NPC, no punches...).
+  // A valid native Ring player stays eligible: speculative silence is not
+  // proof of protection. Not while we are out: every click is then ignored.
+  function silentNativeRingPlayer(id) {
+    if (roomKind() !== "ring" || isStale(id)) return false;
+    const avatar = currentTargetAvatar(id);
+    const accountId = Number(avatar?.avatarInfo?.id);
+    return Boolean(avatar) && Number.isInteger(accountId) && accountId > 0;
+  }
+
   function refreshSilent() {
     const E = state.tickEngine;
     const t = now();
@@ -6639,6 +6854,12 @@
       const n = (E.silentCount.get(c.id) || 0) + 1;
       E.silentCount.set(c.id, n);
       if (n >= 3) {
+        if (silentNativeRingPlayer(c.id)) {
+          E.silentCount.delete(c.id);
+          E.mutedUntil.delete(c.id);
+          sendDiagnostic("target_silent", { targetId: c.id, attempts: n, muted: false, reason: "ring_player_unconfirmed" });
+          continue;
+        }
         E.mutedUntil.set(c.id, t + (roomKind() === "ring" ? RING_MUTE_MS : 8000));
         E.silentCount.delete(c.id);
         sendDiagnostic("target_muted", { targetId: c.id });
@@ -6863,7 +7084,7 @@
     let best = null;
     for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
       const id = asId(rawId);
-      if (id == null || id === selfId || E.out.has(id) || isMuted(id) || isAlly(id) || isStale(id) || rivalLocked(id, landing)) continue;
+      if (id == null || id === selfId || !timingTargetAllowed(id) || E.out.has(id) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || isStale(id) || rivalLocked(id, landing)) continue;
       const a = ensureActorFromRenderer(id);
       if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
       const since = now() - (a.startAt || 0); // the longer it has waited there, the surer
@@ -7001,7 +7222,7 @@
     const E = state.tickEngine;
     if (!tickEnabled() || id == null || id < 0) return;
     const avatar = currentTargetAvatar(id);
-    if (!avatar) return;
+    if (!avatar || !timingTargetAllowed(id, avatar)) return;
     const prev = E.runlock.get(id);
     if (prev && Math.abs(prev.end - end) < 5) return;
     const landing = end + UNLOCK_MARGIN_MS;
@@ -7039,7 +7260,7 @@
     if (!me) return false;
     for (const [id, r] of E.runlock) {
       if (Math.abs(r.landing - landing) >= 110) continue;
-      if (!currentTargetAvatar(id, r.avatar) || isMuted(id) || isAlly(id) || isStale(id) ||
+      if (!timingTargetAllowed(id, r.avatar) || !currentTargetAvatar(id, r.avatar) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || isStale(id) ||
           rivalLocked(id, r.landing) || selfLocked(r.landing) || exitBlocksLanding(r.landing)) continue;
       const a = ensureActorFromRenderer(id);
       if (a && !E.out.has(id) && lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return true;
@@ -7056,7 +7277,7 @@
     if (!r || Math.round(r.end) !== Number(rawEnd)) return;
     E.runlock.delete(id);
     if (!tickEnabled() || E.selfOut || msg.seq !== state.seq) return;
-    if (!currentTargetAvatar(id, r.avatar)) return;
+    if (!timingTargetAllowed(id, r.avatar) || !currentTargetAvatar(id, r.avatar)) return;
     const landing = r.landing;
     if (selfLocked(landing) || exitBlocksLanding(landing)) return;
     const me = ensureActorFromRenderer(inferSelfId());

@@ -22,8 +22,9 @@ if not exist "%HUB_STEP_DIR%\dist-ui\index.html" (
   exit /b 1
 )
 echo Abriendo prueba local. Usa tu licencia y cuenta habituales.
-echo En el Hub: Autoclick por paso. Ejemplo: inicio 350, final 400, intervalo 10 ms.
-echo Runtime esperado: 12102026_html5_step_click_encounter_preview
+echo En el Hub: Autoclick por paso. Momento en ms y Un golpe / 3 intentos.
+echo Las ventanas anteriores se conservan como Personalizado.
+echo Runtime esperado: 12102026_html5_selected_step_controls_preview
 pushd "%HUB_STEP_DIR%"
 start "BB Hub - Autoclick por paso" "%HUB_STEP_DIR%\node_modules\electron\dist\electron.exe" .
 popd

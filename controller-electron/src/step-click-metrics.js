@@ -1,30 +1,39 @@
-const finite = value => value != null && Number.isFinite(Number(value)) ? Number(value) : null;
+const finite = value => value != null && String(value).trim() !== "" && Number.isFinite(Number(value)) ? Number(value) : null;
+const patterns = ["SINGLE", "TRIPLE", "CUSTOM"];
 
-export function hasStepContact(crossing) {
-  return Boolean(crossing && crossing.samples >= 2 && finite(crossing.durationMs) > 0 &&
-    (finite(crossing.closestContactMs) != null || finite(crossing.closestMs) != null) &&
-    crossing.contactWindows?.some(w => finite(w?.fromMs) != null && finite(w?.toMs) != null && finite(w.toMs) >= finite(w.fromMs)));
+export function stepClickDraft(config) {
+  const legacy = config && ["startMs", "endMs", "intervalMs", "clicks"].some(key => config[key] != null);
+  return { enabled: false, source: "PAIR", startMs: 350, endMs: 400, intervalMs: 10, momentMs: 375,
+    ...config, pattern: patterns.includes(config?.pattern) ? config.pattern : legacy ? "CUSTOM" : "SINGLE" };
+}
+
+export function validStepClickDraft(config) {
+  if (!patterns.includes(config?.pattern)) return false;
+  const integer = (value, low, high) => finite(value) != null && Number.isInteger(Number(value)) && Number(value) >= low && Number(value) <= high;
+  if (config.pattern !== "CUSTOM") return integer(config.momentMs, 0, 4999);
+  return integer(config.startMs, 0, 4999) && integer(config.endMs, 1, 5000) && Number(config.endMs) > Number(config.startMs) &&
+    integer(config.intervalMs, 1, 5000) && Math.ceil((Number(config.endMs) - Number(config.startMs)) / Number(config.intervalMs)) <= 256;
+}
+
+export function stepClickPhases(config, durationMs = 5000) {
+  if (!validStepClickDraft(config) || finite(durationMs) == null || Number(durationMs) <= 0) return [];
+  const limit = Math.min(5000, Number(durationMs));
+  if (config.pattern !== "CUSTOM") {
+    const moment = Number(config.momentMs);
+    return (config.pattern === "TRIPLE" ? [moment - 20, moment, moment + 20] : [moment]).filter(ms => ms >= 0 && ms < limit);
+  }
+  const start = Number(config.startMs), end = Math.min(Number(config.endMs), limit), interval = Number(config.intervalMs);
+  return Array.from({ length: Math.max(0, Math.ceil((end - start) / interval)) }, (_, index) => start + index * interval);
 }
 
 export function selectStepCrossing(status) {
   if (!status || !Number.isInteger(status.targetId) || status.targetId < 0) return null;
-  const matches = crossing => crossing && crossing.targetId === status.targetId;
-  if (matches(status.crossing) && status.crossing.active && hasStepContact(status.crossing)) return status.crossing;
-  if (matches(status.lastEncounter) && hasStepContact(status.lastEncounter)) return status.lastEncounter;
-  return [status.lastCrossing, status.crossing].find(c => matches(c) && c.samples >= 2 && finite(c.closestMs) != null) || null;
+  return [status.lastEncounter, status.lastCrossing, status.crossing].find(c => c && c.targetId === status.targetId &&
+    c.complete === true && c.samples >= 2 && finite(c.durationMs) > 0 && stepCrossingPhase(c) != null &&
+    c.contactWindows?.some(window => finite(window?.fromMs) != null && finite(window?.toMs) != null && Number(window.toMs) >= Number(window.fromMs)) &&
+    (!status.source || !c.source || status.source === c.source)) || null;
 }
 
-export function recommendStepWindow(crossing, config, latencyMs) {
-  if (!hasStepContact(crossing)) return { ready: false, reason: "Esperando un cruce con contacto del fichado." };
-  const latency = finite(latencyMs);
-  if (latency == null || latency < 0) return { ready: false, reason: "Esperando una medición de la conexión." };
-  const contactMs = finite(crossing.closestContactMs) ?? finite(crossing.closestMs);
-  const centerMs = Math.round(contactMs - latency);
-  if (centerMs < 0) return { ready: false, centerMs, reason: "Este cruce exige enviar antes de recibir el paso; esta referencia no alcanza." };
-  const duration = Math.floor(Number(crossing.durationMs));
-  if (duration < 1 || centerMs >= duration) return { ready: false, centerMs, reason: "La estimación queda fuera de este paso." };
-  const span = Number(config?.endMs) - Number(config?.startMs);
-  const width = Math.min(duration, Number.isFinite(span) && span >= 1 ? Math.round(span) : 50);
-  const startMs = Math.max(0, Math.min(duration - width, Math.round(centerMs - width / 2)));
-  return { ready: true, centerMs, contactMs, latencyMs: latency, startMs, endMs: startMs + width };
+export function stepCrossingPhase(crossing) {
+  return finite(crossing?.closestContactMs) ?? finite(crossing?.closestMs);
 }

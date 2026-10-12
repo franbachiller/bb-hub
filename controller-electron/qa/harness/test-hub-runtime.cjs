@@ -872,8 +872,7 @@ const api = context.__BBFlashRuntime;
   run("fixture.Renderer.instance").spaceModel = ringModel;
   console.log("PASS any room: engines also click in islands and areas");
 
-  // A target the server never answers (no 144, no 211) is muted after three
-  // engine clicks, so the engine stops wasting clicks on it.
+  // A silent prediction is not evidence that a valid Ring player is protected.
   api.select(7);
   for (let i = 0; i < 3; i++) {
     context.time = T2 + 1000 + i * 150;
@@ -882,13 +881,13 @@ const api = context.__BBFlashRuntime;
   }
   context.time = T2 + 2000;
   tick();
-  assert.ok(api.status().tick.muted.includes(7), "silent target muted");
+  assert.ok(!api.status().tick.muted.includes(7), "valid Ring player is not muted for silence");
   context.time = T2 + 2050;
   inbound(144, 0, []); // an answer now does not unmute it early
   context.time = T2 + 11000;
   tick();
-  assert.ok(!api.status().tick.muted.includes(7), "unmuted after 8 s");
-  console.log("PASS silent targets: three unanswered engine clicks mute a target for 8 s");
+  assert.ok(!api.status().tick.muted.includes(7), "valid Ring player remains eligible");
+  console.log("PASS silent Ring players: unanswered predictions never prove protection");
 
   // 29/09 (cryptic vs iBjorn): a click right after a reply falls in the server gap and
   // says nothing; in the Ring a mute lasts 1.8 s, not 8 s.
@@ -909,11 +908,11 @@ const api = context.__BBFlashRuntime;
     api.onHubMessage({ type: "pulse_config", enabled: true, burst: 1 });
     api.onHubMessage({ type: "pulse_config", enabled: false });
     context.time = T3 + 1500; tick();
-    assert.ok(api.status().tick.muted.includes(7), "three real silences mute");
+    assert.ok(!api.status().tick.muted.includes(7), "silence does not exclude a valid native Ring player");
     context.time = T3 + 3400; tick();
     assert.ok(!api.status().tick.muted.includes(7), "in the Ring the mute ends after 1.8 s");
   }
-  console.log("PASS silent gap: clicks inside the server gap do not count; Ring mute 1.8 s");
+  console.log("PASS silent gap: clicks inside the server gap do not count; valid Ring players remain eligible");
 
   // Held hits resolve in landing order: a rival 211 while our aimed click
   // drew no 144 means the rival landed first, even if its 211 comes at T+83.

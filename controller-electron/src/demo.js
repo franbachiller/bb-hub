@@ -121,7 +121,7 @@ export function createDemoApi(base) {
       if (mode === "error") throw new Error("IPC no disponible");
       return snap;
     },
-    applyTiming: patch(({ enabled }) => { snap.timing = { ...snap.timing, enabled }; log(`Timing ${enabled ? "activo" : "en pausa"}`); }),
+    applyTiming: patch((payload) => { snap.timing = { ...snap.timing, ...payload }; log(payload.targetMode ? `Timing: ${payload.targetMode === "SELECTED" ? "solo el fichado" : "objetivo automático"}` : `Timing ${payload.enabled ? "activo" : "en pausa"}`); }),
     applyMovePunch: async () => {},
     applyDropHunter: patch((payload) => { snap.dropHunter = { ...snap.dropHunter, ...payload, state: payload.enabled ? "SEARCHING" : "IDLE" }; }),
     saveDraftConfig: async () => {},
@@ -132,7 +132,7 @@ export function createDemoApi(base) {
     setAllies: patch((value) => { snap.allies = String(value).split(",").map((s) => s.trim()).filter(Boolean).map((name) => ({ accountId: null, name })); }),
     applySimon: patch((payload) => { snap.simon = { ...(snap.simon || { enabled: false, delayMs: 0 }), ...payload }; }),
     applyStepClick: patch((payload) => {
-      snap.stepClick = { enabled: false, source: "PAIR", startMs: 350, endMs: 400, intervalMs: 10, ...snap.stepClick, ...payload };
+      snap.stepClick = { enabled: false, source: "PAIR", pattern: "SINGLE", momentMs: 375, startMs: 350, endMs: 400, intervalMs: 10, ...snap.stepClick, ...payload };
       if (snap.stepClick.enabled) {
         snap.timing.enabled = false; snap.simon.enabled = false; snap.autoRun = false; snap.ringBoard.armed = false;
       }
