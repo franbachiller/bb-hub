@@ -36,14 +36,14 @@ function fixture() {
 {
   const f = fixture();
   f.q.reactCheck();
-  assert.deepEqual(f.timers.map(x => x.ms), [47,53], "the first confirmed pass gets a reaction after the sweep's 100 ms gap");
+  assert.deepEqual(f.timers.map(x => x.ms), [47], "the first confirmed pass gets one reaction after the sweep's 100 ms gap");
   assert.equal(f.ctx.sends.length, 0, "do not fire inside the server gap");
   f.ctx.t = 314637; f.timers[0].fn();
   assert.equal(f.ctx.sends.length,1);
   assert.equal(f.ctx.sends[0].id,2,"the confirmed contact gets the fallback, not the other sweep target");
   assert.equal(f.ctx.sends[0].reason,"REACT_FALLBACK");
-  f.ctx.t = 314643; f.timers[1].fn();
-  assert.equal(f.ctx.sends.length,1,"the backup timer cannot repeat a successful reaction");
+  f.ctx.t = 314643; f.timers[0].fn();
+  assert.equal(f.ctx.sends.length,1,"a repeated delivery cannot repeat a successful reaction");
   const count = f.timers.length; f.q.reactCheck();
   assert.equal(f.timers.length,count,"one reaction plan per contact/batch");
   console.log("PASS recorded first pass: primary at rival 2, sweep at 7, fallback returns to confirmed rival 2 after the gap");
@@ -76,8 +76,9 @@ function fixture() {
 {
   const f = fixture();
   f.q.state.lastPunch.targetId = 2; f.q.state.lastPunch.at = 314590; f.q.reactCheck();
-  assert.equal(f.timers.length,0,"the latest click still covers the same rival: no extra reaction");
-  console.log("PASS a latest click at the same contact keeps the existing single-click behavior");
+  assert.deepEqual(f.timers.map(x=>x.ms),[101],"a speculative click at the same ID does not prove the contact was handled");
+  f.ctx.t=314691;f.timers[0].fn();assert.equal(f.ctx.sends.length,1);assert.equal(f.ctx.sends[0].id,2);
+  console.log("PASS a same-ID speculative request retains one confirmed-contact fallback after its gap");
 }
 for (const room of ['mGame2', 'BaoBab', 'Beluga Beach']) {
   // Recorded 04/10 15:18:44: we stood at 19,13. The blind request at

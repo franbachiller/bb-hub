@@ -255,6 +255,42 @@ function normalizeAdvanced(value) {
 // (typed by hand, or saved by the old comma list) matches by exact name until
 // that player shows up in a room, then it is bound to the account.
 const ALLIES_MAX = 100;
+function normalizeStepClick(value = {}) {
+  const startMs = clamp(safeInt(value.startMs, 350), 0, 4999);
+  const endMs = clamp(safeInt(value.endMs, 400), startMs + 1, 5000);
+  const legacyInterval = value.clicks != null ? Math.ceil((endMs - startMs) / clamp(safeInt(value.clicks, 6), 1, 64)) : 10;
+  return { enabled: value.enabled === true, source: ["PAIR", "SELF", "SELECTED", "ROOM"].includes(value.source) ? value.source : "PAIR",
+    startMs, endMs, intervalMs: clamp(safeInt(value.intervalMs, legacyInterval), 1, 5000) };
+}
+
+function normalizeStepCrossing(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const finite = (v) => v != null && Number.isFinite(Number(v)) ? Number(v) : null;
+  return { targetId: safeInt(raw.targetId,-1), durationMs:finite(raw.durationMs),closestMs:finite(raw.closestMs),closestContactMs:finite(raw.closestContactMs),distancePx:finite(raw.distancePx),
+    contactFromMs:finite(raw.contactFromMs),contactToMs:finite(raw.contactToMs),resolutionMs:finite(raw.resolutionMs),samples:Math.max(0,safeInt(raw.samples,0)),
+    contactWindows:Array.isArray(raw.contactWindows)?raw.contactWindows.slice(-16).map(w=>({fromMs:finite(w?.fromMs),toMs:finite(w?.toMs)})).filter(w=>w.fromMs!=null&&w.toMs!=null&&w.toMs>=w.fromMs):[],
+    complete:raw.complete===true,active:raw.active===true };
+}
+
+function normalizeStepClickStatus(raw) {
+  const finite = (v) => v != null && Number.isFinite(Number(v)) ? Number(v) : null;
+  return {
+    enabled: raw.enabled === true, running: raw.running === true,
+    source: String(raw.source || "").slice(0, 16), reason: String(raw.reason || "").slice(0, 40),
+    clockSource: String(raw.clockSource || "").slice(0, 24),
+    durationMs: finite(raw.durationMs), phaseMs: finite(raw.phaseMs), sampleAt: finite(raw.sampleAt), intervalMs: finite(raw.intervalMs), latencyMs: finite(raw.latencyMs),
+    referenceId: safeInt(raw.referenceId, -1), targetId: safeInt(raw.targetId, -1), targetName: String(raw.targetName || "").slice(0, 40),
+    sent: Math.max(0, safeInt(raw.sent, 0)), skipped: Math.max(0, safeInt(raw.skipped, 0)), errors: Math.max(0, safeInt(raw.errors, 0)),
+    steps: Math.max(0, safeInt(raw.steps, 0)),
+    crossing: normalizeStepCrossing(raw.crossing), lastCrossing: normalizeStepCrossing(raw.lastCrossing), lastEncounter: normalizeStepCrossing(raw.lastEncounter),
+    last: raw.last && typeof raw.last === "object" ? {
+      targetId: safeInt(raw.last.targetId, -1), phaseMs: finite(raw.last.phaseMs), latenessMs: finite(raw.last.latenessMs),
+      plannedPhaseMs: finite(raw.last.plannedPhaseMs), estimatedLandingMs: finite(raw.last.estimatedLandingMs), latencyMs: finite(raw.last.latencyMs),
+      sent: raw.last.sent === true, reason: String(raw.last.reason || "").slice(0, 32), at: finite(raw.last.at)
+    } : null
+  };
+}
+
 function normalizeSimon(value) {
   const v = value && typeof value === "object" ? value : {};
   return { enabled: v.enabled === true, delayMs: clamp(safeInt(v.delayMs, 0), 0, 2000) };
@@ -437,6 +473,8 @@ function normalizeTickStatus(raw) {
       wins: safeInt(a.wins, 0),
       early: safeInt(a.early, 0),
       late: safeInt(a.late, 0),
+      lost: safeInt(a.lost, 0),
+      learningHeld: safeInt(a.learningHeld, 0),
       recentWinRate: num(a.recentWinRate),
       rivalMedianMs: num(a.rivalMedianMs),
       lastOutcome: String(a.lastOutcome || "")
@@ -479,6 +517,11 @@ class ControllerCore extends EventEmitter {
   constructor(options = {}) {
     super();
     this.settingsPath = options.settingsPath || path.join(process.cwd(), "bbhub-settings.json");
+    // A source-launch experiment, never a saved user preference. Keep the
+    // regular timing and learning settings intact underneath this overlay.
+    const isolationPhase = options.punchIsolationPhase;
+    this.punchIsolationPhase = typeof isolationPhase === "number" && Number.isFinite(isolationPhase) &&
+      isolationPhase >= -20 && isolationPhase <= 40 ? isolationPhase : null;
     this.port = safeInt(options.port, TCP_PORT);
     this.autoPort = options.autoPort === true;
     this.tcpReady = null;
@@ -575,6 +618,9 @@ class ControllerCore extends EventEmitter {
     // face (never on a red band). Off by default; delayMs = wait before touching.
     this.simon = normalizeSimon(saved.simon);
     this.simonStatus = null;
+    this.stepClick = normalizeStepClick({ ...saved.stepClick, enabled: false });
+    this.stepClickStatus = null;
+    this.stepClickStateAt = 0;
   }
 
   start() {
@@ -649,6 +695,7 @@ class ControllerCore extends EventEmitter {
         requeueKey: this.requeueKey || "",
         freeFire: this.freeFire === true,
         simon: this.simon,
+        stepClick: { ...this.stepClick, enabled: false },
         moveDelay: { delayMs: this.moveDelay.delayMs, minMoveMs: this.moveDelay.minMoveMs },
         dropHunter: { autoClaim: this.dropHunter.autoClaim },
         exit: { enabled: this.exitMode.enabled, punch: this.exitMode.punch },
@@ -759,6 +806,8 @@ class ControllerCore extends EventEmitter {
         this.bridgePingMs = null;
         this.tick = null;
         this.exit = null;
+        this.disableStepClick();
+        this.stepClickStatus = null;
         this.log(`Cliente desconectado (${closeReason})`);
         this.emitSnapshot();
       }
@@ -770,6 +819,14 @@ class ControllerCore extends EventEmitter {
       this.swfSocket.destroy();
     }
     this.swfSocket = socket;
+    if (this.punchIsolationPhase != null) {
+      // Establish the overlay before the saved mode/settings can enable a
+      // shot, including when the native client reconnects to this Hub.
+      this.sendToSwf({ type: "punch_isolation_config", enabled: true, phaseMs: this.punchIsolationPhase });
+      this.log(`Timing: T${this.punchIsolationPhase >= 0 ? "+" : ""}${this.punchIsolationPhase} ms; un pedido por paso; fase fija`);
+    }
+    this.disableStepClick();
+    this.stepClickStatus = null;
     this.swfAddr = addr;
     this.bridgePingSentAt = 0;
     this.serverPingMs = null;
@@ -787,12 +844,19 @@ class ControllerCore extends EventEmitter {
     setTimeout(() => this.pushRequeueKey(), 230);
     setTimeout(() => this.sendToSwf({ type: "free_fire_config", enabled: this.freeFire === true }), 235);
     setTimeout(() => this.pushSimon(), 245);
+    setTimeout(() => this.pushStepClick(), 255);
     setTimeout(() => this.pushDesiredConfig(true), 220);
     this.emitSnapshot();
   }
 
   handleSwfMessage(data) {
     const type = String(data?.type || "");
+    if (type === "step_click_state") {
+      this.stepClickStatus = normalizeStepClickStatus(data.status || {});
+      this.stepClickStateAt = Date.now();
+      this.emitSnapshot(true);
+      return;
+    }
     if (type === "state") {
       // A game left open across Hub restarts keeps boot() ready and does not
       // repeat hello. Its periodic state still identifies the loaded runtime.
@@ -807,6 +871,10 @@ class ControllerCore extends EventEmitter {
       this.updatePlayers(Array.isArray(data.players) ? data.players : []);
       if (this.allies.some((a) => !a.accountId)) this.bindAllyNames();
       if (data.simon && typeof data.simon === "object") this.simonStatus = normalizeSimonStatus(data.simon);
+      if (data.stepClick && typeof data.stepClick === "object") {
+        this.stepClickStatus = normalizeStepClickStatus(data.stepClick);
+        this.stepClickStateAt = Date.now();
+      }
       if (data.tick) {
         this.tick = normalizeTickStatus(data.tick);
       }
@@ -1032,6 +1100,7 @@ class ControllerCore extends EventEmitter {
     if (this.desiredMode === "OFF") {
       return !Boolean(timing.enabled) && !Boolean(moveDelay.enabled) && !Boolean(data.dropHunter?.enabled);
     }
+    if (this.desiredMode === "STEP_CLICK") return !Boolean(timing.enabled) && !Boolean(moveDelay.enabled);
     if (this.desiredMode !== "TIMING" || !this.desiredTiming) {
       return true;
     }
@@ -1097,6 +1166,11 @@ class ControllerCore extends EventEmitter {
     this.configPushTimer = null;
     this.lastConfigPushAt = now;
     this.sendToSwf({ type: "punch_config", packets: clamp(safeInt(this.desiredPunchPackets, 1), 1, PUNCH_PACKETS_MAX) });
+    if (this.desiredMode === "STEP_CLICK") {
+      this.pushOffConfig();
+      this.pushStepClick();
+      return;
+    }
     if (this.desiredMode === "OFF") {
       this.pushOffConfig();
       return;
@@ -1118,6 +1192,7 @@ class ControllerCore extends EventEmitter {
     this.sendToSwf({ type: "timing_config", enabled: false, source: "STEP" });
     this.sendToSwf({ type: "move_punch_config", enabled: false, delayMs: this.moveDelay.delayMs, minMoveMs: this.moveDelay.minMoveMs });
     this.sendToSwf({ type: "drop_hunter_config", enabled: false, autoReturn: true, autoClaim: this.dropHunter.autoClaim });
+    if (!this.stepClick?.enabled) this.pushStepClick();
   }
 
   pushMovePunchConfig() {
@@ -1166,6 +1241,7 @@ class ControllerCore extends EventEmitter {
   }
 
   applyTiming(payload = {}) {
+    if (payload.enabled) this.disableStepClick();
     const timing = this.setTimingDesired(payload.enabled);
     this.sendToSwf({ type: "exit_config", ...this.exitMode });
     this.persistSettings();
@@ -1176,6 +1252,7 @@ class ControllerCore extends EventEmitter {
   }
 
   applyMovePunch(payload = {}) {
+    if (payload.enabled) this.disableStepClick();
     this.moveDelay = {
       enabled: Boolean(payload.enabled),
       delayMs: clamp(safeInt(payload.delayMs, this.moveDelay.delayMs), 0, 250),
@@ -1240,7 +1317,52 @@ class ControllerCore extends EventEmitter {
     this.sendToSwf({ type: "simon_config", enabled: this.simon.enabled, delayMs: this.simon.delayMs });
   }
 
+  pushStepClick() {
+    this.sendToSwf({ type: "step_click_config", ...this.stepClick });
+  }
+
+  disableStepClick() {
+    if (!this.stepClick?.enabled) return;
+    this.stepClick = { ...this.stepClick, enabled: false };
+    this.pushStepClick();
+    if (this.desiredMode === "STEP_CLICK") this.desiredMode = "OFF";
+  }
+
+  applyStepClick(payload = {}) {
+    const defined = Object.fromEntries(Object.entries(payload).filter(([key, value]) => ["enabled", "source", "startMs", "endMs", "intervalMs", "clicks"].includes(key) && value !== undefined));
+    const merged = { ...this.stepClick, ...defined };
+    if (defined.clicks != null && defined.intervalMs == null) delete merged.intervalMs;
+    const next = normalizeStepClick(merged);
+    if (next.enabled && this.swfSocket && !this.stepClickStatus) throw new Error("Reabre el juego desde este Hub para cargar Autoclick por paso.");
+    const activating = next.enabled && !this.stepClick.enabled;
+    if (activating) {
+      this.stopModes();
+      this.autoRun = false;
+      this.pushAutoRun();
+      this.clearRingBoardFireTimers();
+      this.setRingBoardArmed(false);
+      this.simon = { ...this.simon, enabled: false };
+      this.pushSimon();
+      this.freeFire = false;
+      this.sendToSwf({ type: "free_fire_config", enabled: false });
+      this.exitMode = { enabled: false, punch: false };
+      this.sendToSwf({ type: "exit_config", ...this.exitMode });
+    }
+    this.stepClick = next;
+    if (next.enabled) {
+      this.desiredMode = "STEP_CLICK";
+      this.desiredTiming = null;
+      this.configAuthoritative = true;
+    } else if (this.desiredMode === "STEP_CLICK") this.desiredMode = "OFF";
+    this.persistSettings();
+    this.pushStepClick();
+    this.log(`Autoclick por paso -> ${next.enabled ? "ON" : "OFF"} ${next.source} ${next.startMs}-${next.endMs} ms cada ${next.intervalMs} ms (solo fichado)`);
+    this.emitSnapshot(true);
+    return true;
+  }
+
   applySimon(payload = {}) {
+    if (payload.enabled) this.disableStepClick();
     const wasOn = this.simon.enabled;
     this.simon = normalizeSimon({ ...this.simon, ...(payload || {}) });
     this.persistSettings();
@@ -1279,6 +1401,7 @@ class ControllerCore extends EventEmitter {
   }
 
   applyFreeFire(payload = {}) {
+    if (payload.enabled) this.disableStepClick();
     this.freeFire = Boolean(payload.enabled);
     this.persistSettings();
     this.sendToSwf({ type: "free_fire_config", enabled: this.freeFire });
@@ -1516,6 +1639,7 @@ class ControllerCore extends EventEmitter {
   }
 
   applyExit(payload = {}) {
+    if (payload.enabled || payload.punch) this.disableStepClick();
     this.exitMode = {
       enabled: payload.enabled == null ? this.exitMode.enabled : Boolean(payload.enabled),
       punch: payload.punch == null ? this.exitMode.punch : Boolean(payload.punch)
@@ -1552,6 +1676,7 @@ class ControllerCore extends EventEmitter {
   }
 
   stopModes() {
+    this.disableStepClick();
     this.desiredMode = "OFF";
     this.desiredTiming = null;
     this.desiredDropHunter = null;
@@ -1758,6 +1883,7 @@ class ControllerCore extends EventEmitter {
   }
 
   applyRingBoardTiming(message) {
+    if (this.stepClick?.enabled) return;
     if (!this.enforceBoardLicense()) return;
     const msg = {
       type: "timing_config",
@@ -1792,6 +1918,7 @@ class ControllerCore extends EventEmitter {
   }
 
   scheduleRingBoardFire(message) {
+    if (this.stepClick?.enabled) return;
     if (!this.enforceBoardLicense()) return;
     const targetId = safeInt(message.targetId, -1);
     if (targetId < 0) {
@@ -1870,6 +1997,7 @@ class ControllerCore extends EventEmitter {
 
   setRingBoardArmed(value) {
     if (value && !this.boardLicensed()) throw new Error("Se necesita una licencia Board Pro.");
+    if (value) this.disableStepClick();
     this.ringBoardLastSceneKey = "";
     this.ringBoardLastSceneAt = 0;
     if (value) {
@@ -2151,6 +2279,7 @@ class ControllerCore extends EventEmitter {
       requeueKey: this.requeueKey || "",
       freeFire: this.freeFire === true,
       simon: { ...this.simon, status: this.simonStatus },
+      stepClick: { ...this.stepClick, status: this.stepClickStatus, sampleAgeMs: this.stepClickStateAt ? Math.max(0, Date.now() - this.stepClickStateAt) : null },
       combat: this.combat,
       moveDelay: this.moveDelay,
       dropHunter: this.dropHunter,
@@ -2199,6 +2328,7 @@ class ControllerCore extends EventEmitter {
 
 module.exports = {
   ControllerCore,
+  normalizeStepClick,
   normalizeTimingConfig,
   normalizeTickConfig,
   normalizeTickStatus,

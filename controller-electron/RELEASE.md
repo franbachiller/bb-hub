@@ -1,5 +1,22 @@
 # BB Hub — distribución Windows
 
+## 0.1.22 — Timing de un pedido y Autoclick por paso
+
+Promueve el perfil probado por el propietario (9 golpes propios y 2 recibidos):
+T+13 ms fijo, un solo pedido anticipado por paso y selección automática. Sin
+reintentos, reacción adicional ni aprendizaje que cambie esa fase. El motor
+del juego conserva exactamente el hash probado; el Hub empaquetado activa el
+perfil al conectar, antes de la configuración guardada.
+
+Autoclick por paso conserva como único objetivo la ficha nativa. Corrige pasos
+cortos y continuos, retiene el cruce útil en azul y prepara una ventana de
+envío con compensación estimada de RTT. Un envío no confirma aceptación.
+
+Validación: 270 casos/grupos locales, perfil del bytecode protegido, UI y
+activación empaquetadas; ASAR extraído del instalador idéntico al paquete.
+Entrega en `DISTRIBUCION/BB Hub 0.1.22 Windows x64` y manifiesto
+`docs/releases/0.1.22.json`. Cuentas, licencias y updater conservan su flujo.
+
 ## 0.1.16 — Timing del 02/10 y respaldo en la salida de coco
 
 Preparada para distribuir; sin publicar en Cryptlex ni en el repositorio de

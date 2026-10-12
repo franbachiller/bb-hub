@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import logoUrl from "../electron/assets/icon.png";
-import { AlertTriangle, ArrowUpRight, ArrowRight, Check, Crosshair, Gauge, Grid2X2, ListFilter, RotateCcw, ScrollText, ShieldCheck, Smile, Square, Target, Trash2, UserPlus, Users, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, ArrowRight, Check, Crosshair, Gauge, Grid2X2, ListFilter, MousePointer2, RotateCcw, ScrollText, ShieldCheck, Smile, Square, Target, Trash2, UserPlus, Users, X, Zap } from "lucide-react";
 import { createDemoApi } from "./demo.js";
+import { recommendStepWindow, selectStepCrossing } from "./step-click-metrics.js";
 
 const fallbackSnapshot = {
   controllerBuild: "-",
@@ -110,6 +111,7 @@ const stubApi = {
   setAllies: async () => {},
   toggleAlly: async () => {},
   applySimon: async () => {},
+  applyStepClick: async () => {},
   addAllyByName: async () => {},
   removeAlly: async () => {},
   getPortraits: async () => ({}),
@@ -148,6 +150,7 @@ const navItems = [
   { id: "players", label: "Jugadores", icon: Users },
   { id: "allies", label: "Aliados", icon: ShieldCheck },
   { id: "simon", label: "Simon Dice", icon: Smile },
+  { id: "stepClick", label: "Autoclick por paso", icon: MousePointer2 },
   { id: "logs", label: "Registro", icon: ScrollText }
 ];
 
@@ -248,9 +251,9 @@ function App() {
             <div className="stat stat-coco"><dt>Coco</dt><dd className={cocoActive ? "num is-warn" : "num"}>{cocoActive ? `${(snapshot.exit.cocoRemainingMs / 1000).toFixed(1)} s` : "Libre"}</dd></div>
           </dl>
           <div className="strip-actions">
-            <button className={`target ${automaticPlayer ? "has-target" : ""}`} onClick={() => setActiveTab("players")} title="Último disparo de Timing">
+            <button className={`target ${automaticPlayer ? "has-target" : ""}`} onClick={() => setActiveTab(snapshot.stepClick?.enabled ? "stepClick" : "players")} title={snapshot.stepClick?.enabled ? "Ficha actual de Autoclick por paso" : "Último disparo de Timing"}>
               <Target aria-hidden="true" size={15} strokeWidth={1.8} />
-              <span className="target-name">{automaticPlayer?.name || "Sin disparos"}</span>
+              <span className="target-name">{snapshot.stepClick?.enabled ? snapshot.stepClick.status?.targetName || "Sin ficha" : automaticPlayer?.name || "Sin disparos"}</span>
             </button>
             <button className="btn btn-danger" onClick={stopModes}><Square aria-hidden="true" size={11} fill="currentColor" /><span>Detener todo</span></button>
           </div>
@@ -265,6 +268,7 @@ function App() {
           {activeTab === "players" && <PlayersView {...context} />}
           {activeTab === "allies" && <AlliesView {...context} />}
           {activeTab === "simon" && <SimonView {...context} />}
+          {activeTab === "stepClick" && <StepClickView {...context} />}
           {activeTab === "logs" && <LogsView logs={snapshot.logs || []} runAction={runAction} />}
         </main>
       </div>
@@ -556,6 +560,136 @@ function RequeueKeyRow({ snapshot, runAction }) {
     </div>
   </Setting>;
 }
+const STEP_CLICK_DEFAULTS = { enabled: false, source: "PAIR", startMs: 350, endMs: 400, intervalMs: 10 };
+const STEP_CLICK_SOURCES = [["PAIR", "Yo o fichado"], ["SELF", "Mi keko"], ["SELECTED", "Fichado"], ["ROOM", "Movimiento en sala"]];
+const STEP_CLICK_REASONS = {
+  off: "Apagado", disconnected: "Esperando el juego", waiting_step: "Esperando un paso",
+  no_selection: "Ficha a un enemigo en el juego", ally: "El fichado es un aliado",
+  window_outside_step: "La ventana supera la duración del paso", late: "Clic tardío descartado",
+  interval_too_small: "Aumenta el intervalo: máximo 256 clics por paso",
+  no_sender: "El juego todavía no está listo", not_sent: "El cliente no envió el clic",
+  worker_error: "No se pudo programar el burst", send_error: "Falló el envío del clic", ready: "Listo"
+};
+
+function StepClickView({ snapshot, runAction }) {
+  const config = snapshot.stepClick || STEP_CLICK_DEFAULTS;
+  const st = config.status;
+  const [form, setForm] = useState(() => ({ ...STEP_CLICK_DEFAULTS, ...config }));
+  const [dirty, setDirty] = useState(false);
+  const [phase, setPhase] = useState(null);
+  const configKey = JSON.stringify([config.source, config.startMs, config.endMs, config.intervalMs]);
+  useEffect(() => { if (!dirty) setForm({ ...STEP_CLICK_DEFAULTS, ...config }); }, [configKey, dirty]);
+  useEffect(() => {
+    let raf;
+    const received = performance.now();
+    const animate = () => {
+      const elapsed = performance.now() - received + (config.sampleAgeMs || 0);
+      setPhase(snapshot.connected && st?.phaseMs != null && st.durationMs > 0 && elapsed < 2500
+        ? Math.min(st.durationMs, st.phaseMs + (st.running ? elapsed : 0)) : null);
+      raf = requestAnimationFrame(animate);
+    };
+    animate();
+    return () => cancelAnimationFrame(raf);
+  }, [st?.sampleAt, snapshot.connected, config.sampleAgeMs]);
+  const valid = [form.startMs, form.endMs, form.intervalMs].every(v => String(v).trim() !== "") && Number.isInteger(Number(form.startMs)) && Number(form.startMs) >= 0 && Number(form.startMs) < 5000 &&
+    Number.isInteger(Number(form.endMs)) && Number(form.endMs) > Number(form.startMs) && Number(form.endMs) <= 5000 &&
+    Number.isInteger(Number(form.intervalMs)) && Number(form.intervalMs) >= 1 && Number(form.intervalMs) <= 5000 && Math.ceil((Number(form.endMs)-Number(form.startMs))/Number(form.intervalMs))<=256;
+  const update = (key, value) => { setDirty(true); setForm(v => ({ ...v, [key]: value })); };
+  const apply = async (enabled = config.enabled) => {
+    if (enabled && !valid) return;
+    if (await runAction(() => api.applyStepClick(enabled === false && !valid ? { enabled: false } : {
+      enabled, source: form.source, startMs: Number(form.startMs), endMs: Number(form.endMs), intervalMs: Number(form.intervalMs)
+    }))) setDirty(false);
+  };
+  const duration = st?.durationMs;
+  const running = phase != null && phase < duration;
+  const state = !config.enabled ? "Apagado" : !snapshot.connected ? "Esperando el juego" : st && !st.enabled ? "Sin activar en el juego" : STEP_CLICK_REASONS[st?.reason] || "Esperando un paso";
+  const number = (v) => v == null ? "—" : Math.round(v * 10) / 10;
+  const crossing = selectStepCrossing(st);
+  const markerMs = crossing?.closestContactMs ?? crossing?.closestMs;
+  const recommendation = recommendStepWindow(crossing, form, st?.latencyMs);
+  const previewStart = String(form.startMs).trim() !== "" && Number.isFinite(Number(form.startMs)) ? Number(form.startMs) : (config.startMs ?? 350);
+  const previewEnd = String(form.endMs).trim() !== "" && Number.isFinite(Number(form.endMs)) ? Number(form.endMs) : (config.endMs ?? 400);
+  const previewWindow = stepDuration => ({ left: `${Math.max(0, Math.min(100, previewStart / stepDuration * 100))}%`, width: `${Math.max(0, Math.min(stepDuration, previewEnd) - Math.max(0, Math.min(stepDuration, previewStart))) / stepDuration * 100}%` });
+  const prepareWindow = () => {
+    if (!recommendation.ready) return;
+    setDirty(true);
+    setForm(v => ({ ...v, startMs: recommendation.startMs, endMs: recommendation.endMs }));
+  };
+  const pct = v => `${Math.max(0,Math.min(100,v/(duration||600)*100))}%`;
+  const comparableCrossing = Boolean(crossing && duration > 0 && crossing.durationMs === duration);
+  const clicks = Math.ceil(((config.endMs??400)-(config.startMs??350))/(config.intervalMs||10));
+  return <>
+    <PageHeading title="Autoclick por paso" description="Programa uno o varios golpes dentro del paso. Cada clic va exclusivamente al enemigo fichado en el juego." />
+    <section className="section">
+      <div className="master">
+        <div><span className="master-label">Autoclick independiente</span><b className={`master-state tone-${config.enabled ? "good" : "muted"}`}>{state}</b></div>
+        <Toggle label="Activar Autoclick por paso" checked={config.enabled} disabled={!config.enabled && !valid} onChange={apply} large tone="ember" />
+      </div>
+      <p className="note">Al activarlo se apagan Timing, Board y Simon. El golpe usa la ficha actual; al quitarla, deja de disparar. Se respetan los aliados.</p>
+      <form onSubmit={e => { e.preventDefault(); apply(); }}>
+        <div className="spec">
+          <Setting title="Referencia del paso" text="Yo o fichado sigue a cualquiera de los dos, también cuando tú estás quieto. Mi keko y Fichado siguen solo a ese personaje. Cada nuevo paso reinicia la ventana." stack>
+            <div className="segmented" role="group" aria-label="Referencia del paso">{STEP_CLICK_SOURCES.map(([value, label]) => <button type="button" key={value} className={`seg ${form.source === value ? "is-on" : ""}`} aria-pressed={form.source === value} onClick={() => update("source", value)}>{label}</button>)}</div>
+          </Setting>
+          <Setting title="Ventana e intervalo" text="Un clic al inicio y después cada X ms, hasta el final de la ventana o del paso. El final está excluido." stack>
+            <div className="step-click-fields">
+              {[["startMs", "Inicio (ms)", 0, 4999], ["endMs", "Final (ms)", 1, 5000], ["intervalMs", "Un clic cada (ms)", 1, 5000]].map(([key, label, min, max]) => <label key={key}>{label}<input className="input" type="number" required step="1" min={min} max={max} value={form[key]} onChange={e => update(key, e.target.value)} /></label>)}
+            </div>
+          </Setting>
+        </div>
+        <div className="controls"><button type="submit" className="btn btn-primary" disabled={!dirty || !valid}>Aplicar ventana</button><button type="button" className="btn" disabled={!valid} onClick={() => update("intervalMs", Number(form.endMs) - Number(form.startMs))}>Un golpe</button><span className="note">{!valid ? "El final debe superar al inicio; intervalo de 1 a 5000 ms y máximo 256 clics por paso." : dirty ? "Cambios sin aplicar; la barra muestra la ventana preparada." : "Configuración aplicada."}</span></div>
+        <p className="note">En uso: cada {config.intervalMs || 10} ms entre {config.startMs ?? 350} y {config.endMs ?? 400} ms · {clicks} clic{clicks===1?'':'s'} si cabe la ventana. «Un golpe» prepara un solo pedido por paso.</p>
+      </form>
+    </section>
+    <section className="section">
+      <h2 className="section-title">Paso en vivo <span className="section-meta">{running ? "en curso" : "esperando movimiento"}</span></h2>
+      <div className="step-click-clock"><b className="num">{number(phase)} <small>/ {duration || "—"} ms</small></b><span>{st?.targetId >= 0 ? `${st.targetName || "Fichado"} · #${st.targetId}` : "Sin enemigo fichado"}</span></div>
+      <div className="step-click-track" role="progressbar" aria-label="Milisegundos del paso" aria-valuemin={0} aria-valuemax={duration || 600} aria-valuenow={Math.round(phase || 0)}>
+        <span className="step-click-window" style={previewWindow(duration || 600)} />
+        {comparableCrossing && crossing.contactWindows?.map((w,i)=><span key={i} className="step-click-contact" style={{left:pct(w.fromMs),width:pct(Math.max(1,w.toMs-w.fromMs))}} title={`Contacto observado: ${number(w.fromMs)}–${number(w.toMs)} ms`} />)}
+        {comparableCrossing && markerMs!=null && <span className="step-click-cross-point" style={{left:pct(markerMs)}} title={`Cercanía ${crossing.closestContactMs!=null ? "con contacto" : "visual"} observada: ${number(markerMs)} ms`} />}
+        {phase != null && <span className="step-click-needle" style={{ left: `${phase / (duration || 600) * 100}%` }} />}
+      </div>
+      <div className="step-click-legend"><span>Rojo · ventana preparada</span><span>Verde · contacto en grilla</span><span>Azul · cercanía medida</span></div>
+      <div className="step-click-cross-label" aria-live="polite">
+        {crossing?.closestMs!=null && crossing.samples>=2 ? <><b>◆ Máxima cercanía visual: {number(crossing.closestMs)} ms</b><span>En un paso de {number(crossing.durationMs)} ms · {crossing.closestMs<(config.startMs??350) ? `${number((config.startMs??350)-crossing.closestMs)} ms antes de tu ventana` : crossing.closestMs>=(config.endMs??400) ? `${number(crossing.closestMs-(config.endMs??400))} ms después del final` : "dentro de tu ventana"}{!crossing.complete ? " · muestra parcial" : ""}</span><span>{crossing.contactFromMs!=null ? `Contacto en grilla observado: ${number(crossing.contactFromMs)}–${number(crossing.contactToMs)} ms` : "Sin contacto en grilla observado en esta muestra"}</span></> : <span>Esperando muestras del cruce con el fichado.</span>}
+      </div>
+      <p className="note">{st?.clockSource === "socket_worker" ? "Paso recibido directamente del juego." : st?.clockSource === "client_dispatch" ? "Paso leído por el cliente." : st?.clockSource === "native_animation" ? "Paso tomado de la animación nativa." : "Todavía no llegó un paso."} La fase se mide en el cliente. Cada paso real renueva el reloj; no se inventan ciclos al quedarse quieto.</p>
+      <dl className="readout">
+        <div><dt>Clics enviados</dt><dd className="num">{st?.sent ?? 0}</dd></div>
+        <div><dt>Pasos detectados</dt><dd className="num">{st?.steps ?? 0}</dd></div>
+        <div><dt>Clics descartados</dt><dd className="num">{st?.skipped ?? 0}</dd></div>
+        <div><dt>Errores</dt><dd className="num">{st?.errors ?? 0}</dd></div>
+        <div><dt>Último clic</dt><dd className="num">{number(st?.last?.phaseMs)} ms</dd></div>
+        <div><dt>Clic programado</dt><dd className="num">{number(st?.last?.plannedPhaseMs)} ms</dd></div>
+        <div><dt>Llegada estimada del último clic</dt><dd className="num">{number(st?.last?.estimatedLandingMs)} ms</dd></div>
+        <div><dt>Retraso del último clic</dt><dd className="num">{number(st?.last?.latenessMs)} ms</dd></div>
+      </dl>
+      <h3 className="section-title">Cruce con el fichado <span className="section-meta">{crossing?.active ? "en medición" : crossing?.complete ? "último paso medido" : crossing ? "muestra parcial" : "sin muestra"}</span></h3>
+      <div className="controls"><button className="btn" disabled={!recommendation.ready} onClick={prepareWindow}>Preparar ventana para este cruce</button><span className="note">{recommendation.ready ? `Centro de envío estimado: ${recommendation.centerMs} ms · cercanía con contacto ${number(recommendation.contactMs)} ms − conexión ${number(recommendation.latencyMs)} ms. Estimación, no garantiza aceptación.` : recommendation.reason}</span></div>
+      {crossing?.closestMs!=null && crossing.samples>=2 && <div className="step-click-measured" aria-label="Ventana del cruce medido">
+        <div className="step-click-track">
+          <span className="step-click-window" style={previewWindow(crossing.durationMs)} />
+          {crossing.contactWindows?.map((w,i)=><span key={i} className="step-click-contact" style={{left:`${w.fromMs/crossing.durationMs*100}%`,width:`${Math.max(1,w.toMs-w.fromMs)/crossing.durationMs*100}%`}} />)}
+          <span className="step-click-cross-point" style={{left:`${Math.min(100,markerMs/crossing.durationMs*100)}%`}} title="Cercanía medida; no confirma un golpe aceptado" />
+        </div>
+        <div className="step-click-axis"><span>0 ms</span><span>{number(crossing.durationMs/2)} ms</span><span>{number(crossing.durationMs)} ms</span></div>
+      </div>}
+      <dl className="readout">
+        <div><dt>Máxima cercanía observada</dt><dd className="num">{number(crossing?.closestMs)} ms</dd></div>
+        <div><dt>Cercanía con contacto</dt><dd className="num">{number(crossing?.closestContactMs)} ms</dd></div>
+        <div><dt>Conexión (ida y vuelta)</dt><dd className="num">{number(st?.latencyMs)} ms</dd></div>
+        <div><dt>Distancia visual mínima</dt><dd className="num">{number(crossing?.distancePx)} px</dd></div>
+        <div><dt>Contacto en grilla</dt><dd className="num">{crossing?.contactWindows?.length ? crossing.contactWindows.map(w=>`${number(w.fromMs)}–${number(w.toMs)} ms`).join(" · ") : crossing?.contactFromMs!=null ? `${number(crossing.contactFromMs)}–${number(crossing.contactToMs)} ms` : "Sin contacto observado"}</dd></div>
+        <div><dt>Resolución de lectura</dt><dd className="num">{number(crossing?.resolutionMs)} ms · {crossing?.samples ?? 0} muestras</dd></div>
+      </dl>
+      <p className="note">La última medición queda marcada mientras llega la siguiente. Se leen tus posiciones y las del fichado en cada cuadro. La máxima cercanía es visual; la ventana de envío que produce un golpe aceptado también depende de la conexión y del servidor.</p>
+      <p className="note">Un envío no confirma un golpe aceptado. Se descarta cualquier clic fuera de la ventana o con más de 8 ms de retraso.</p>
+    </section>
+  </>;
+}
+
 // Simon Dice (06/10): the runtime reads each cartel and touches the asked face.
 const SIMON_DELAYS = [[0, "Al instante"], [150, "150 ms"], [300, "300 ms"], [600, "600 ms"]];
 function SimonView({ snapshot, runAction }) {

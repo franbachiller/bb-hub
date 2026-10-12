@@ -28,6 +28,10 @@ for (const [scenario,change,expected] of [
   ['first_eliminated','E.out.add(2)',7],
   ['first_locked','E.lockUntil.set(2,20000)',7],
   ['first_muted','E.mutedUntil.set(2,20000)',7],
+  ['first_ally',"s.allies.names.add('first')",7],
+  ['first_down','E.down.set(2,20000)',7],
+  ['first_recycled',"s.providers.renderer.instance.avatars.set(2,{position:{x:15,y:18},avatarInfo:{id:201,username:'Replacement'}})",7],
+  ['all_recycled',"s.providers.renderer.instance.avatars.set(2,{position:{x:15,y:18},avatarInfo:{id:201,username:'Replacement'}});s.providers.renderer.instance.avatars.set(7,{position:{x:13,y:16},avatarInfo:{id:701,username:'ReplacementTwo'}})",null],
   ['first_stays','',2],
   ['all_invalid','E.out.add(2);E.out.add(7)',null],
   ['round_changed','s.seq++',null],
@@ -36,11 +40,19 @@ for (const [scenario,change,expected] of [
   ['self_eliminated','E.selfOut=true',null]
 ]) {
   const f=fixture();f.q.reactCheck();assert.equal(f.ctx.sends.length,0);
-  f.run(change);f.ctx.t=10047;f.timers[0].fn();f.ctx.t=10053;f.timers[1].fn();
+  f.run(change);f.ctx.t=10047;f.timers[0].fn();f.ctx.t=10053;if(f.timers[1])f.timers[1].fn();
   const sent=JSON.parse(JSON.stringify(f.ctx.sends));
   assert.equal(sent.length,expected==null?0:1,scenario);
   if(expected!=null){assert.equal(sent[0].id,expected,scenario);assert.ok(sent[0].at-9946>=101,'retain actual request gap');}
   console.log('PASS reaction reselect: '+scenario);cases++;
+}
+{
+  const f=fixture();f.run('s.providers.renderer.instance.avatars.delete(7)');f.q.reactCheck();
+  f.run("s.providers.renderer.instance.avatars.set(7,{position:{x:13,y:16},avatarInfo:{id:700,username:'Second'}})");f.q.reactCheck();
+  assert.equal(f.timers.length,1,'a fresh sibling must join the existing pending shot');
+  f.run('E.out.add(2)');f.ctx.t=10047;f.timers[0].fn();
+  assert.equal(f.ctx.sends.length,1);assert.equal(f.ctx.sends[0].id,7);
+  console.log('PASS reaction reselect merges fresh siblings arriving in the same batch');cases++;
 }
 {
   const f=fixture();
@@ -55,7 +67,7 @@ for (const [scenario,change,expected] of [
   // A rival already in contact is not a fresh fallback. Preserve the original
   // one-plan-per-contact rule rather than repeatedly attacking an old contact.
   f.run('s.react.lateral.add(7)');f.q.reactCheck();f.run('E.out.add(2)');
-  f.ctx.t=10047;f.timers[0].fn();f.ctx.t=10053;f.timers[1].fn();
+  f.ctx.t=10047;f.timers[0].fn();f.ctx.t=10053;if(f.timers[1])f.timers[1].fn();
   assert.equal(f.ctx.sends.length,0,'reselection only uses fresh siblings of the original batch');
   console.log('PASS reaction reselect does not add an old contact');cases++;
 }

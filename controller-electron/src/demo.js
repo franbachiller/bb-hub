@@ -131,6 +131,12 @@ export function createDemoApi(base) {
     applyStepWalk: patch(({ enabled }) => { snap.stepWalk = enabled; }),
     setAllies: patch((value) => { snap.allies = String(value).split(",").map((s) => s.trim()).filter(Boolean).map((name) => ({ accountId: null, name })); }),
     applySimon: patch((payload) => { snap.simon = { ...(snap.simon || { enabled: false, delayMs: 0 }), ...payload }; }),
+    applyStepClick: patch((payload) => {
+      snap.stepClick = { enabled: false, source: "PAIR", startMs: 350, endMs: 400, intervalMs: 10, ...snap.stepClick, ...payload };
+      if (snap.stepClick.enabled) {
+        snap.timing.enabled = false; snap.simon.enabled = false; snap.autoRun = false; snap.ringBoard.armed = false;
+      }
+    }),
     toggleAlly: patch((value) => {
       const i = snap.allies.findIndex((a) => a.accountId === value.accountId);
       if (i >= 0) snap.allies.splice(i, 1); else snap.allies.push({ accountId: value.accountId, name: value.name });
@@ -159,7 +165,7 @@ export function createDemoApi(base) {
       snap.players = snap.players.map((p) => ({ ...p, selected: p.id === id, mark: p.self ? "SELF" : p.id === id ? "SEL" : "" }));
     }),
     rawPunch: async () => {},
-    stopModes: patch(() => { snap.timing = { ...snap.timing, enabled: false }; snap.dropHunter = { ...snap.dropHunter, enabled: false }; log("Detener todo"); }),
+    stopModes: patch(() => { snap.stepClick = { ...snap.stepClick, enabled: false }; snap.timing = { ...snap.timing, enabled: false }; snap.dropHunter = { ...snap.dropHunter, enabled: false }; log("Detener todo"); }),
     clearLogs: patch(() => { snap.logs = []; }),
     launchGame: patch(() => { snap.game = { ...snap.game, state: "ready", message: "Juego conectado." }; }),
     submitGameCode: async () => {},
