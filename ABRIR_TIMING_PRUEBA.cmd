@@ -22,8 +22,8 @@ if not exist "%HUB_TIMING_DIR%\dist-ui\index.html" (
   exit /b 1
 )
 echo Prueba local. Usa tu licencia y cuenta habituales.
-echo Runtime esperado: 12102026_html5_step_click_encounter_preview
-echo En el Hub: Autoclick por paso apagado, TIMING con tus opciones habituales.
+echo Runtime esperado: 12102026_html5_selected_step_controls_preview
+echo En el Hub: Autoclick por paso apagado, TIMING Automatico / Solo el fichado.
 echo Activa Registro de combate antes de entrar a Ring.
 pushd "%HUB_TIMING_DIR%"
 start "BB Hub - Timing UpperAll" "%HUB_TIMING_DIR%\node_modules\electron\dist\electron.exe" .

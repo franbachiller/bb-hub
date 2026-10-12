@@ -73,6 +73,7 @@ const SKIN_NAMES = {
 const defaultTiming = () => ({
   enabled: false,
   source: "STEP",
+  targetMode: "AUTO",
   stepAnchor: "BOTH",
   start: 435,
   end: 750,
@@ -259,7 +260,10 @@ function normalizeStepClick(value = {}) {
   const startMs = clamp(safeInt(value.startMs, 350), 0, 4999);
   const endMs = clamp(safeInt(value.endMs, 400), startMs + 1, 5000);
   const legacyInterval = value.clicks != null ? Math.ceil((endMs - startMs) / clamp(safeInt(value.clicks, 6), 1, 64)) : 10;
+  const pattern = ["SINGLE", "TRIPLE", "CUSTOM"].includes(value.pattern) ? value.pattern :
+    ["startMs", "endMs", "intervalMs", "clicks"].some(key => value[key] != null) ? "CUSTOM" : "SINGLE";
   return { enabled: value.enabled === true, source: ["PAIR", "SELF", "SELECTED", "ROOM"].includes(value.source) ? value.source : "PAIR",
+    pattern, momentMs: clamp(safeInt(value.momentMs, 375), 0, 4999),
     startMs, endMs, intervalMs: clamp(safeInt(value.intervalMs, legacyInterval), 1, 5000) };
 }
 
@@ -269,6 +273,8 @@ function normalizeStepCrossing(raw) {
   return { targetId: safeInt(raw.targetId,-1), durationMs:finite(raw.durationMs),closestMs:finite(raw.closestMs),closestContactMs:finite(raw.closestContactMs),distancePx:finite(raw.distancePx),
     contactFromMs:finite(raw.contactFromMs),contactToMs:finite(raw.contactToMs),resolutionMs:finite(raw.resolutionMs),samples:Math.max(0,safeInt(raw.samples,0)),
     contactWindows:Array.isArray(raw.contactWindows)?raw.contactWindows.slice(-16).map(w=>({fromMs:finite(w?.fromMs),toMs:finite(w?.toMs)})).filter(w=>w.fromMs!=null&&w.toMs!=null&&w.toMs>=w.fromMs):[],
+    source:String(raw.source || "").slice(0,16),clockSource:String(raw.clockSource || "").slice(0,24),referenceId:safeInt(raw.referenceId,-1),
+    motionKind:["BOTH","SELF","SELECTED","STILL"].includes(raw.motionKind)?raw.motionKind:"",
     complete:raw.complete===true,active:raw.active===true };
 }
 
@@ -276,13 +282,15 @@ function normalizeStepClickStatus(raw) {
   const finite = (v) => v != null && Number.isFinite(Number(v)) ? Number(v) : null;
   return {
     enabled: raw.enabled === true, running: raw.running === true,
+    pattern: ["SINGLE", "TRIPLE", "CUSTOM"].includes(raw.pattern) ? raw.pattern : "CUSTOM", momentMs: finite(raw.momentMs),
+    patternsSupported: ["SINGLE", "TRIPLE", "CUSTOM"].includes(raw.pattern) && finite(raw.momentMs) != null,
     source: String(raw.source || "").slice(0, 16), reason: String(raw.reason || "").slice(0, 40),
     clockSource: String(raw.clockSource || "").slice(0, 24),
     durationMs: finite(raw.durationMs), phaseMs: finite(raw.phaseMs), sampleAt: finite(raw.sampleAt), intervalMs: finite(raw.intervalMs), latencyMs: finite(raw.latencyMs),
     referenceId: safeInt(raw.referenceId, -1), targetId: safeInt(raw.targetId, -1), targetName: String(raw.targetName || "").slice(0, 40),
     sent: Math.max(0, safeInt(raw.sent, 0)), skipped: Math.max(0, safeInt(raw.skipped, 0)), errors: Math.max(0, safeInt(raw.errors, 0)),
     steps: Math.max(0, safeInt(raw.steps, 0)),
-    crossing: normalizeStepCrossing(raw.crossing), lastCrossing: normalizeStepCrossing(raw.lastCrossing), lastEncounter: normalizeStepCrossing(raw.lastEncounter),
+    crossing: normalizeStepCrossing(raw.crossing), lastCrossing: normalizeStepCrossing(raw.lastCrossing), lastEncounter: raw.lastEncounter?.complete === true ? normalizeStepCrossing(raw.lastEncounter) : null,
     last: raw.last && typeof raw.last === "object" ? {
       targetId: safeInt(raw.last.targetId, -1), phaseMs: finite(raw.last.phaseMs), latenessMs: finite(raw.last.latenessMs),
       plannedPhaseMs: finite(raw.last.plannedPhaseMs), estimatedLandingMs: finite(raw.last.estimatedLandingMs), latencyMs: finite(raw.last.latencyMs),
@@ -345,6 +353,11 @@ function normalizeTickAim(value) {
   return Number.isFinite(n) ? clamp(Math.round(n), 0, 120) : null;
 }
 
+function normalizeTimingTargetMode(value, fallback = "AUTO") {
+  if (value == null) return fallback === "SELECTED" ? "SELECTED" : "AUTO";
+  return value === "SELECTED" ? "SELECTED" : "AUTO";
+}
+
 function normalizeTickConfig(config, fallback = defaultTiming().tick) {
   const fb = fallback && typeof fallback === "object" ? fallback : defaultTiming().tick;
   const c = config && typeof config === "object" ? config : fb;
@@ -379,6 +392,7 @@ function normalizeTimingConfig(config = {}, fallback = defaultTiming()) {
   return {
     enabled: flag("enabled"),
     source: "STEP",
+    targetMode: normalizeTimingTargetMode(c.targetMode, fb.targetMode),
     stepAnchor: normalizeStepAnchor(c.stepAnchor, fb.stepAnchor),
     start,
     end,
@@ -411,6 +425,7 @@ function timingMessage(timing, enabled) {
     type: "timing_config",
     enabled: Boolean(enabled),
     source: "STEP",
+    targetMode: timing.targetMode,
     stepAnchor: timing.stepAnchor,
     start: timing.start,
     end: timing.end,
@@ -447,6 +462,11 @@ function normalizeTickStatus(raw) {
   const a = raw.auto && typeof raw.auto === "object" ? raw.auto : {};
   const num = (value) => (value == null || !Number.isFinite(Number(value)) ? null : Math.round(Number(value)));
   return {
+    targetMode: normalizeTimingTargetMode(raw.targetMode),
+    selectedTimingSupported: ["AUTO", "SELECTED"].includes(raw.targetMode),
+    fixedPhaseMs: num(raw.fixedPhaseMs),
+    selectedTargetId: safeInt(raw.selectedTargetId, -1),
+    selectedTargetName: String(raw.selectedTargetName || "").slice(0, 40),
     lastTargetId: safeInt(raw.lastTargetId, -1),
     lastTargetReason: String(raw.lastTargetReason || ""),
     enabled: Boolean(raw.enabled),
@@ -530,6 +550,7 @@ class ControllerCore extends EventEmitter {
     try { this.timingHotkey = normalizeHotkey(saved.timingHotkey ?? "F2"); }
     catch { this.timingHotkey = "F2"; }
     this.tickAim = normalizeTickAim(saved.tickAim);
+    this.timingTargetMode = normalizeTimingTargetMode(saved.timing?.targetMode);
     // Movement brain chosen on the Board (0 planner, 1 tile, 2 tile2): the ring-board
     // starts on the planner, so it is sent again whenever its status says otherwise.
     this.moveBrain = [0, 1, 2, 3].includes(saved.moveBrain) ? saved.moveBrain : 0;
@@ -718,6 +739,7 @@ class ControllerCore extends EventEmitter {
       return false;
     }
     this.timing = normalizeTimingConfig({ ...payload, enabled: this.timing.enabled }, this.timing);
+    if ("targetMode" in payload) this.timingTargetMode = this.timing.targetMode;
     this.persistSettings();
     this.emitSnapshot();
     return true;
@@ -1110,6 +1132,7 @@ class ControllerCore extends EventEmitter {
     return (
       Boolean(timing.enabled) === Boolean(want.enabled) &&
       String(timing.source || "STEP").toUpperCase() === "STEP" &&
+      normalizeTimingTargetMode(timing.targetMode) === want.targetMode &&
       normalizeStepAnchor(timing.stepAnchor, "SELF") === want.stepAnchor &&
       safeInt(timing.start, -1) === want.start &&
       safeInt(timing.end, -1) === want.end &&
@@ -1223,6 +1246,7 @@ class ControllerCore extends EventEmitter {
     return normalizeTimingConfig({
       ...defaultTiming(),
       enabled: Boolean(enabled),
+      targetMode: this.timingTargetMode,
       landing: { ...defaultTiming().landing, enabled: false },
       tick: { enabled: true, auto: this.tickAim == null, single: true, blind: true, reactive: this.advanced?.reactive !== false, autoCal: true, offsetMs: this.tickAim ?? 10, shots: 1, spacingMs: 110, burst: 1, burstGapMs: 4 }
     });
@@ -1241,12 +1265,17 @@ class ControllerCore extends EventEmitter {
   }
 
   applyTiming(payload = {}) {
-    if (payload.enabled) this.disableStepClick();
-    const timing = this.setTimingDesired(payload.enabled);
+    const targetMode = "targetMode" in payload ? normalizeTimingTargetMode(payload.targetMode, this.timingTargetMode) : this.timingTargetMode;
+    if (payload.enabled !== false && targetMode === "SELECTED" && this.swfSocket && this.tick?.selectedTimingSupported !== true)
+      throw new Error("Reabre el juego desde este Hub para cargar Timing con el enemigo fichado.");
+    if ("targetMode" in payload) this.timingTargetMode = normalizeTimingTargetMode(payload.targetMode, this.timingTargetMode);
+    const enabled = "enabled" in payload ? Boolean(payload.enabled) : Boolean(this.timing?.enabled);
+    if (enabled) this.disableStepClick();
+    const timing = this.setTimingDesired(enabled);
     this.sendToSwf({ type: "exit_config", ...this.exitMode });
     this.persistSettings();
     this.pushDesiredConfig(true);
-    this.log(`TIMING -> ${timing.enabled ? "ON" : "OFF"}`);
+    this.log(`TIMING -> ${timing.enabled ? "ON" : "OFF"}${timing.targetMode === "SELECTED" ? " · enemigo fichado" : ""}`);
     this.emitSnapshot();
     return true;
   }
@@ -1329,11 +1358,14 @@ class ControllerCore extends EventEmitter {
   }
 
   applyStepClick(payload = {}) {
-    const defined = Object.fromEntries(Object.entries(payload).filter(([key, value]) => ["enabled", "source", "startMs", "endMs", "intervalMs", "clicks"].includes(key) && value !== undefined));
+    const defined = Object.fromEntries(Object.entries(payload).filter(([key, value]) => ["enabled", "source", "pattern", "momentMs", "startMs", "endMs", "intervalMs", "clicks"].includes(key) && value !== undefined));
     const merged = { ...this.stepClick, ...defined };
+    if (defined.pattern == null && ["startMs", "endMs", "intervalMs", "clicks"].some(key => defined[key] != null)) merged.pattern = "CUSTOM";
     if (defined.clicks != null && defined.intervalMs == null) delete merged.intervalMs;
     const next = normalizeStepClick(merged);
     if (next.enabled && this.swfSocket && !this.stepClickStatus) throw new Error("Reabre el juego desde este Hub para cargar Autoclick por paso.");
+    if (next.enabled && next.pattern !== "CUSTOM" && this.swfSocket && this.stepClickStatus?.patternsSupported !== true)
+      throw new Error("Reabre el juego desde este Hub para cargar los controles nuevos de Autoclick por paso.");
     const activating = next.enabled && !this.stepClick.enabled;
     if (activating) {
       this.stopModes();
@@ -1356,7 +1388,9 @@ class ControllerCore extends EventEmitter {
     } else if (this.desiredMode === "STEP_CLICK") this.desiredMode = "OFF";
     this.persistSettings();
     this.pushStepClick();
-    this.log(`Autoclick por paso -> ${next.enabled ? "ON" : "OFF"} ${next.source} ${next.startMs}-${next.endMs} ms cada ${next.intervalMs} ms (solo fichado)`);
+    const schedule = next.pattern === "CUSTOM" ? `${next.startMs}-${next.endMs} ms cada ${next.intervalMs} ms` :
+      `${next.momentMs} ms; ${next.pattern === "TRIPLE" ? "3 intentos separados 20 ms" : "un pedido"}`;
+    this.log(`Autoclick por paso -> ${next.enabled ? "ON" : "OFF"} ${next.source} ${schedule} (solo fichado)`);
     this.emitSnapshot(true);
     return true;
   }

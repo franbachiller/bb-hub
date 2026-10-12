@@ -29,7 +29,7 @@ if not exist "%HUB_TIMING_DIR%\node_modules\electron\dist\electron.exe" (
 echo Prueba local. Usa tu licencia y cuenta habituales.
 echo Punch aislado: T+13 ms, un pedido por paso.
 echo El aprendizaje y las opciones guardadas no se modifican por esta prueba.
-echo Runtime esperado: 12102026_html5_step_click_encounter_preview
+echo Runtime esperado: 12102026_html5_selected_step_controls_preview
 echo En el Hub: TIMING activo y Autoclick por paso apagado.
 echo Activa Registro de combate antes de entrar a Ring.
 pushd "%HUB_TIMING_DIR%"

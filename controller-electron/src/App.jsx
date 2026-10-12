@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import logoUrl from "../electron/assets/icon.png";
 import { AlertTriangle, ArrowUpRight, ArrowRight, Check, Crosshair, Gauge, Grid2X2, ListFilter, MousePointer2, RotateCcw, ScrollText, ShieldCheck, Smile, Square, Target, Trash2, UserPlus, Users, X, Zap } from "lucide-react";
 import { createDemoApi } from "./demo.js";
-import { recommendStepWindow, selectStepCrossing } from "./step-click-metrics.js";
+import { selectStepCrossing, stepCrossingPhase, stepClickDraft, stepClickPhases, validStepClickDraft } from "./step-click-metrics.js";
 
 const fallbackSnapshot = {
   controllerBuild: "-",
@@ -17,6 +17,7 @@ const fallbackSnapshot = {
   players: [],
   timing: {
     enabled: false,
+    targetMode: "AUTO",
     source: "STEP",
     stepAnchor: "BOTH",
     start: 435,
@@ -161,6 +162,11 @@ function dropHunterFromSnapshot(snapshot) {
 function signedMs(value) {
   return value == null || !Number.isFinite(Number(value)) ? "—" : `T${Number(value) >= 0 ? "+" : ""}${Number(value)} ms`;
 }
+function timingFixedPhase(snapshot) {
+  if (!snapshot.connected || !snapshot.tick) return 13;
+  const phase = snapshot.tick.fixedPhaseMs;
+  return phase === null ? null : phase != null && Number.isFinite(Number(phase)) ? Number(phase) : 13;
+}
 function hunterState(value) {
   return ({ IDLE: "En espera", SEARCHING: "Buscando", MOVING: "En camino", CLAIMING: "Reclamando", RETURNING: "Volviendo", WAITING: "Esperando" })[value] || value || "En espera";
 }
@@ -195,7 +201,11 @@ function App() {
     return needle ? players.filter((p) => [p.name, p.id, p.userId].some((v) => String(v ?? "").toLowerCase().includes(needle))) : players;
   }, [players, playerFilter]);
   const selectedPlayer = players.find((p) => p.id === snapshot.selectedTarget);
-  const automaticPlayer = snapshot.connected ? players.find((p) => !p.self && p.id !== snapshot.selfId && p.id === snapshot.tick?.lastTargetId) : null;
+  const timingSelectedMode = snapshot.timing?.targetMode === "SELECTED";
+  const timingTargetId = timingSelectedMode ? snapshot.tick?.selectedTargetId : snapshot.tick?.lastTargetId;
+  const automaticPlayer = snapshot.connected ? players.find((p) => !p.self && p.id !== snapshot.selfId && p.id === timingTargetId) : null;
+  const timingTargetName = timingSelectedMode ? snapshot.connected && snapshot.tick?.selectedTargetId >= 0 ? snapshot.tick.selectedTargetName || automaticPlayer?.name || "Fichado" : "Sin ficha" : automaticPlayer?.name || "Sin disparos";
+  const targetPresent = snapshot.stepClick?.enabled ? snapshot.stepClick.status?.targetId >= 0 : timingSelectedMode ? snapshot.connected && snapshot.tick?.selectedTargetId >= 0 : Boolean(automaticPlayer);
   const selfPlayer = players.find((p) => p.self || p.id === snapshot.selfId);
   const ping = [snapshot.serverPingMs, snapshot.bridgePingMs].find((value) => value != null && Number.isFinite(Number(value)) && Number(value) >= 0);
   const status = !snapshot.connected ? "Sin conexión" : snapshot.lastStateAgeMs > 2500 ? "Señal demorada" : "Conectado";
@@ -251,9 +261,9 @@ function App() {
             <div className="stat stat-coco"><dt>Coco</dt><dd className={cocoActive ? "num is-warn" : "num"}>{cocoActive ? `${(snapshot.exit.cocoRemainingMs / 1000).toFixed(1)} s` : "Libre"}</dd></div>
           </dl>
           <div className="strip-actions">
-            <button className={`target ${automaticPlayer ? "has-target" : ""}`} onClick={() => setActiveTab(snapshot.stepClick?.enabled ? "stepClick" : "players")} title={snapshot.stepClick?.enabled ? "Ficha actual de Autoclick por paso" : "Último disparo de Timing"}>
+            <button className={`target ${targetPresent ? "has-target" : ""}`} onClick={() => setActiveTab(snapshot.stepClick?.enabled ? "stepClick" : "players")} title={snapshot.stepClick?.enabled ? "Ficha actual de Autoclick por paso" : timingSelectedMode ? "Ficha actual de Timing" : "Último disparo de Timing"}>
               <Target aria-hidden="true" size={15} strokeWidth={1.8} />
-              <span className="target-name">{snapshot.stepClick?.enabled ? snapshot.stepClick.status?.targetName || "Sin ficha" : automaticPlayer?.name || "Sin disparos"}</span>
+              <span className="target-name">{snapshot.stepClick?.enabled ? snapshot.stepClick.status?.targetName || "Sin ficha" : timingTargetName}</span>
             </button>
             <button className="btn btn-danger" onClick={stopModes}><Square aria-hidden="true" size={11} fill="currentColor" /><span>Detener todo</span></button>
           </div>
@@ -281,7 +291,10 @@ function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, automati
   const hunter = snapshot.dropHunter || fallbackSnapshot.dropHunter;
   const combat = snapshot.combat || fallbackSnapshot.combat;
   const auto = snapshot.tick?.auto;
+  const fixedPhase = timingFixedPhase(snapshot);
   const avatarUrl = snapshot.game?.avatarUrl || "";
+  const timingSelectedMode = snapshot.timing?.targetMode === "SELECTED";
+  const timingTargetName = timingSelectedMode ? snapshot.connected && snapshot.tick?.selectedTargetId >= 0 ? snapshot.tick.selectedTargetName || automaticPlayer?.name || "Fichado" : "Sin ficha" : automaticPlayer?.name || "Sin disparos";
   return <>
     <PageHeading title="Inicio" description={selfPlayer ? <>Sesión de <strong>{selfPlayer.name}</strong> · {snapshot.connected ? "cliente conectado" : "cliente sin conexión"}.</> : "Esperando al cliente del juego."} action={<button className="btn" onClick={() => setActiveTab("timing")}>Abrir Timing <ArrowUpRight aria-hidden="true" size={15} /></button>} />
     <ProfileCard snapshot={snapshot} selfPlayer={selfPlayer} avatarUrl={avatarUrl} players={players} />
@@ -289,7 +302,7 @@ function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, automati
     <section className="section" aria-label="Modos de operación">
       <h2 id="modes-title" className="section-title">Modos</h2>
       <div className="spec">
-        <Operation title="Timing" description={snapshot.timing?.enabled ? "Aprendizaje automático" : "Precisión automática"} checked={Boolean(snapshot.timing?.enabled)} onChange={applyTiming} onOpen={() => setActiveTab("timing")} tone="ember" />
+        <Operation title="Timing" description={snapshot.timing?.targetMode === "SELECTED" ? "Solo el fichado" : "Objetivo por proximidad"} checked={Boolean(snapshot.timing?.enabled)} onChange={applyTiming} onOpen={() => setActiveTab("timing")} tone="ember" />
         <Operation title="Board" description={ring.bridgeConnected ? "Tablero conectado" : "Tablero en espera"} disabled={!ring.licensed} checked={ring.armed} onChange={(value) => runAction(() => api.setRingBoardArmed(value))} onOpen={() => setActiveTab("board")} tone="ember" />
         <Operation title="Drops" description={hunter.enabled ? hunterState(hunter.state) : "Captura de eventos"} checked={Boolean(hunter.enabled)} onChange={() => applyDropHunter(!dropHunterForm.enabled)} onOpen={() => setActiveTab("dropHunter")} />
       </div>
@@ -297,8 +310,8 @@ function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, automati
     <div className="split">
       <section className="section" aria-labelledby="session-title">
         <h2 id="session-title" className="section-title">Sesión <span className="section-meta">{snapshot.connected ? "en vivo" : "en espera"}</span></h2>
-        <div className="lead-figure lead-figure-inline"><span>Llegada estimada</span><b className="num">{auto ? signedMs(auto.aimMs) : "—"}</b></div>
-        <dl className="readout"><div><dt>Último disparo de Timing</dt><dd className={automaticPlayer ? "is-accent" : ""}>{automaticPlayer?.name || "Sin disparos"}</dd></div><div><dt>Frontera del server</dt><dd className="mono">{auto ? `${signedMs(auto.boundaryMs)} · ${auto.samples} muestras` : "—"}</dd></div><div><dt>Variación</dt><dd className="mono">{auto?.sigmaMs == null ? "—" : `${auto.sigmaMs} ms`}</dd></div></dl>
+        <div className="lead-figure lead-figure-inline"><span>{fixedPhase != null ? "Fase principal" : "Llegada estimada"}</span><b className="num">{fixedPhase != null ? signedMs(fixedPhase) : auto ? signedMs(auto.aimMs) : "—"}</b></div>
+        <dl className="readout"><div><dt>{timingSelectedMode ? "Ficha actual de Timing" : "Último disparo de Timing"}</dt><dd className={automaticPlayer ? "is-accent" : ""}>{timingTargetName}</dd></div><div><dt>Frontera del server</dt><dd className="mono">{auto ? `${signedMs(auto.boundaryMs)} · ${auto.samples} muestras` : "—"}</dd></div><div><dt>Variación</dt><dd className="mono">{auto?.sigmaMs == null ? "—" : `${auto.sigmaMs} ms`}</dd></div></dl>
       </section>
       <section className="section" aria-labelledby="room-title">
         <h2 id="room-title" className="section-title">En sala <span className="section-meta">{players.length} jugadores</span></h2>
@@ -402,11 +415,12 @@ function TimingView({ snapshot, applyTiming, runAction, setActiveTab }) {
   const on = Boolean(snapshot.timing?.enabled);
   const live = snapshot.tick;
   const auto = live?.auto;
+  const fixedPhase = timingFixedPhase(snapshot);
   const combat = snapshot.combat || fallbackSnapshot.combat;
   const state = !on ? "En pausa" : !snapshot.connected ? "Esperando al cliente" : live?.synced ? "Sincronizado" : "Esperando el tick";
   const stateTone = !on ? "muted" : !snapshot.connected ? "warn" : live?.synced ? "good" : "warn";
   return <>
-    <PageHeading title="Timing" description="Contacto, reacción y salida del coco. El ajuste se aprende mientras juegas." />
+    <PageHeading title="Timing" description="Anticipa el golpe con el motor de Timing. Elige cómo seleccionar al rival." />
     <div className="columns">
       <div className="col-main">
         <section className="section" aria-labelledby="engine-title">
@@ -416,6 +430,9 @@ function TimingView({ snapshot, applyTiming, runAction, setActiveTab }) {
             <Toggle label="Activar Timing automático" checked={on} onChange={applyTiming} large tone="ember" />
           </div>
           <div className="spec">
+            <Setting title="Objetivo de Timing" text={snapshot.timing?.targetMode === "SELECTED" ? "Usa el mismo motor de Timing, exclusivamente contra el fichado. Sin ficha válida no golpea a otro jugador." : "Timing elige al rival por proximidad. Fichar en el juego no cambia su elección."} stack>
+              <div className="segmented" role="group" aria-label="Objetivo de Timing">{[["AUTO", "Objetivo automático"], ["SELECTED", "Solo el fichado"]].map(([value, label]) => <button key={value} className={`seg ${(snapshot.timing?.targetMode || "AUTO") === value ? "is-on" : ""}`} aria-pressed={(snapshot.timing?.targetMode || "AUTO") === value} onClick={() => runAction(() => api.applyTiming({ targetMode: value }))}>{label}</button>)}</div>
+            </Setting>
             <TimingHotkeyRow snapshot={snapshot} runAction={runAction} />
             <Setting title="Modo automático" text="Se mueve, golpea, sale al perder y se vuelve a inscribir al Ring (paga la entrada)."><Toggle label="Modo automático" disabled={!snapshot.ringBoard?.licensed} checked={snapshot.autoRun === true} onChange={(checked) => runAction(() => api.setAutoRun(checked))} /></Setting>
             <Setting title="Emotes al azar" text="Cada 25 a 70 s tira una risa, un escupitajo, un pedo o un llanto. En el Ring, solo si no hay nadie a 4 casillas."><Toggle label="Emotes al azar" checked={snapshot.emotes !== false} onChange={(checked) => runAction(() => api.setEmotes(checked))} /></Setting>
@@ -435,24 +452,24 @@ function TimingView({ snapshot, applyTiming, runAction, setActiveTab }) {
           <h2 id="move-title" className="section-title">Movimiento</h2>
           <div className="spec"><Setting title="Caminar paso a paso" text="Avanzar una casilla por vez."><Toggle label="Caminar paso a paso" checked={snapshot.stepWalk !== false} onChange={(checked) => runAction(() => api.applyStepWalk({ enabled: checked }))} /></Setting></div>
         </section>
-        <section className="section" aria-labelledby="exp-title">
+        {fixedPhase == null && <section className="section" aria-labelledby="exp-title">
           <h2 id="exp-title" className="section-title">Experimental</h2>
           <div className="spec"><Setting title="Disparo libre" text="Ignora el espaciado de 100 ms: dispara continuo en todo el tick. Puede rendir peor — es para medir."><Toggle label="Disparo libre" checked={snapshot.freeFire === true} onChange={(checked) => runAction(() => api.applyFreeFire({ enabled: checked }))} /></Setting></div>
-        </section>
-        <AdvancedTiming snapshot={snapshot} runAction={runAction} />
+        </section>}
+        {fixedPhase == null && <AdvancedTiming snapshot={snapshot} runAction={runAction} />}
       </div>
       <aside className="col-side" aria-label="Lectura de sesión">
         <section className="panel"><h2 className="section-title">Actualizaciones</h2><p className="note">Versión {snapshot.updates?.version || "0.1.3"}. Se comprueban automáticamente al abrir el Hub.</p><p className="note" role="status">{snapshot.updates?.message}</p><button className="btn" disabled={["checking", "downloading", "installing"].includes(snapshot.updates?.status)} onClick={() => runAction(() => api.checkUpdates())}>Buscar actualizaciones</button></section>
         <section className="panel">
           <h2 className="section-title">Lectura de sesión <span className="section-meta">{on ? "activo" : "en pausa"}</span></h2>
-          <div className="lead-figure"><span>Llegada estimada</span><b className="num">{auto ? signedMs(auto.aimMs) : "—"}</b></div>
+          <div className="lead-figure"><span>{fixedPhase != null ? "Fase principal" : "Llegada estimada"}</span><b className="num">{fixedPhase != null ? signedMs(fixedPhase) : auto ? signedMs(auto.aimMs) : "—"}</b></div>
           <dl className="figures figures-2">
             <Metric label="Carreras ganadas" value={auto?.recentWinRate == null ? "—" : `${auto.recentWinRate} %`} />
             <Metric label="Golpes / recibidos" value={`${combat.hits ?? 0} / ${combat.gotHit ?? 0}`} />
             <Metric label="Coco" value={snapshot.exit?.cocoActive ? `${(snapshot.exit.cocoRemainingMs / 1000).toFixed(1)} s` : "Libre"} tone={snapshot.exit?.cocoActive ? "warn" : ""} />
           </dl>
           <details className="disclosure">
-            <summary><span>Aprendizaje y diagnóstico</span><span className="chev" aria-hidden="true" /></summary>
+            <summary><span>Diagnóstico del motor</span><span className="chev" aria-hidden="true" /></summary>
             <dl className="readout">
               <div><dt>Clics / reacciones</dt><dd className="mono">{live ? `${live.fired} / ${live.reactFired ?? 0}` : "—"}</dd></div>
               <div><dt>Frontera</dt><dd className="mono">{auto ? `${signedMs(auto.boundaryMs)} · ${auto.samples}` : "—"}</dd></div>
@@ -460,7 +477,7 @@ function TimingView({ snapshot, applyTiming, runAction, setActiveTab }) {
               <div><dt>Llegada del rival</dt><dd className="mono">{auto?.rivalMedianMs == null ? "—" : signedMs(auto.rivalMedianMs)}</dd></div>
             </dl>
             {live?.lastSkip && <p className="note">Último tick sin clic: <span className="mono">{live.lastSkip}</span></p>}
-            <div className="disclosure-foot"><p className="note">Reiniciar borra el ajuste aprendido.</p><button className="btn" onClick={() => runAction(() => Promise.all([api.resetTickAuto(), api.resetExit()]))}><RotateCcw aria-hidden="true" size={14} />Reiniciar aprendizaje</button></div>
+            <div className="disclosure-foot"><p className="note">Reiniciar borra las mediciones guardadas.</p><button className="btn" onClick={() => runAction(() => Promise.all([api.resetTickAuto(), api.resetExit()]))}><RotateCcw aria-hidden="true" size={14} />Reiniciar mediciones</button></div>
           </details>
         </section>
         <p className="note">El estado y las mediciones se actualizan con tu sesión.</p>
@@ -522,7 +539,7 @@ function CocoSelfRow({ snapshot, runAction }) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [capturing]);
-  return <Setting title="Coco propio" text={<>{snapshot.cocoSelfMode !== "off" ? "Si el guardia no puede cubrir el desbloqueo (sin cocos, o el rival entró al contacto después de la última decisión), se tira el coco a sí mismo: 7 s sin recibir golpes, y al salir el turno se pelea con la fase aprendida. Gasta uno de los 3 cocos de la ronda." : "El auto está apagado: el coco propio sale solo con la tecla o el botón."}{code ? ` Pulsa ${keyLabel(code)} en el juego para tirarlo al instante.` : ""}{capturing ? " Pulsa la tecla que quieras (Esc cancela)." : ""}</>} stack>
+  return <Setting title="Coco propio" text={<>{snapshot.cocoSelfMode !== "off" ? "Si el guardia no puede cubrir el desbloqueo (sin cocos, o el rival entró al contacto después de la última decisión), se tira el coco a sí mismo: 7 s sin recibir golpes, y al salir el turno se pelea con la fase configurada. Gasta uno de los 3 cocos de la ronda." : "El auto está apagado: el coco propio sale solo con la tecla o el botón."}{code ? ` Pulsa ${keyLabel(code)} en el juego para tirarlo al instante.` : ""}{capturing ? " Pulsa la tecla que quieras (Esc cancela)." : ""}</>} stack>
     <div className="controls">
       <div className="segmented" role="group" aria-label="Coco propio">
         <button className={`seg ${snapshot.cocoSelfMode !== "off" ? "is-on" : ""}`} aria-pressed={snapshot.cocoSelfMode !== "off"} onClick={() => runAction(() => api.setCocoSelf("auto"))}>Auto</button>
@@ -560,25 +577,26 @@ function RequeueKeyRow({ snapshot, runAction }) {
     </div>
   </Setting>;
 }
-const STEP_CLICK_DEFAULTS = { enabled: false, source: "PAIR", startMs: 350, endMs: 400, intervalMs: 10 };
+const STEP_CLICK_DEFAULTS = { enabled: false, source: "PAIR", pattern: "SINGLE", momentMs: 375, startMs: 350, endMs: 400, intervalMs: 10 };
 const STEP_CLICK_SOURCES = [["PAIR", "Yo o fichado"], ["SELF", "Mi keko"], ["SELECTED", "Fichado"], ["ROOM", "Movimiento en sala"]];
 const STEP_CLICK_REASONS = {
   off: "Apagado", disconnected: "Esperando el juego", waiting_step: "Esperando un paso",
   no_selection: "Ficha a un enemigo en el juego", ally: "El fichado es un aliado",
-  window_outside_step: "La ventana supera la duración del paso", late: "Clic tardío descartado",
-  interval_too_small: "Aumenta el intervalo: máximo 256 clics por paso",
-  no_sender: "El juego todavía no está listo", not_sent: "El cliente no envió el clic",
-  worker_error: "No se pudo programar el burst", send_error: "Falló el envío del clic", ready: "Listo"
+  window_outside_step: "El envío queda fuera del paso", late: "Pedido tardío omitido",
+  interval_too_small: "Máximo 256 pedidos por paso", no_sender: "El juego todavía no está listo",
+  not_sent: "El cliente no envió el pedido", worker_error: "Error al programar el envío",
+  send_error: "Falló el envío", ready: "Listo"
 };
+const STEP_MOTION_LABELS = { BOTH: "Ambos en movimiento", SELF: "Tú en movimiento · fichado quieto", SELECTED: "Tú quieto · fichado en movimiento", STILL: "Ambos quietos" };
 
 function StepClickView({ snapshot, runAction }) {
-  const config = snapshot.stepClick || STEP_CLICK_DEFAULTS;
+  const config = stepClickDraft(snapshot.stepClick);
   const st = config.status;
-  const [form, setForm] = useState(() => ({ ...STEP_CLICK_DEFAULTS, ...config }));
+  const [form, setForm] = useState(() => stepClickDraft(snapshot.stepClick));
   const [dirty, setDirty] = useState(false);
   const [phase, setPhase] = useState(null);
-  const configKey = JSON.stringify([config.source, config.startMs, config.endMs, config.intervalMs]);
-  useEffect(() => { if (!dirty) setForm({ ...STEP_CLICK_DEFAULTS, ...config }); }, [configKey, dirty]);
+  const configKey = JSON.stringify([config.source, config.pattern, config.momentMs, config.startMs, config.endMs, config.intervalMs]);
+  useEffect(() => { if (!dirty) setForm(stepClickDraft(snapshot.stepClick)); }, [configKey, dirty]);
   useEffect(() => {
     let raf;
     const received = performance.now();
@@ -591,104 +609,87 @@ function StepClickView({ snapshot, runAction }) {
     animate();
     return () => cancelAnimationFrame(raf);
   }, [st?.sampleAt, snapshot.connected, config.sampleAgeMs]);
-  const valid = [form.startMs, form.endMs, form.intervalMs].every(v => String(v).trim() !== "") && Number.isInteger(Number(form.startMs)) && Number(form.startMs) >= 0 && Number(form.startMs) < 5000 &&
-    Number.isInteger(Number(form.endMs)) && Number(form.endMs) > Number(form.startMs) && Number(form.endMs) <= 5000 &&
-    Number.isInteger(Number(form.intervalMs)) && Number(form.intervalMs) >= 1 && Number(form.intervalMs) <= 5000 && Math.ceil((Number(form.endMs)-Number(form.startMs))/Number(form.intervalMs))<=256;
+  const valid = validStepClickDraft(form);
   const update = (key, value) => { setDirty(true); setForm(v => ({ ...v, [key]: value })); };
   const apply = async (enabled = config.enabled) => {
     if (enabled && !valid) return;
-    if (await runAction(() => api.applyStepClick(enabled === false && !valid ? { enabled: false } : {
-      enabled, source: form.source, startMs: Number(form.startMs), endMs: Number(form.endMs), intervalMs: Number(form.intervalMs)
-    }))) setDirty(false);
+    const payload = enabled === false && !valid ? { enabled: false } : {
+      enabled, source: form.source, pattern: form.pattern, momentMs: Number(form.momentMs),
+      startMs: Number(form.startMs), endMs: Number(form.endMs), intervalMs: Number(form.intervalMs)
+    };
+    if (await runAction(() => api.applyStepClick(payload))) setDirty(false);
   };
-  const duration = st?.durationMs;
+  const duration = st?.durationMs > 0 ? st.durationMs : 600;
+  const preparedPhases = stepClickPhases(form, duration);
+  const allPhases = stepClickPhases(form);
   const running = phase != null && phase < duration;
   const state = !config.enabled ? "Apagado" : !snapshot.connected ? "Esperando el juego" : st && !st.enabled ? "Sin activar en el juego" : STEP_CLICK_REASONS[st?.reason] || "Esperando un paso";
-  const number = (v) => v == null ? "—" : Math.round(v * 10) / 10;
+  const number = value => value == null ? "—" : Math.round(value * 10) / 10;
   const crossing = selectStepCrossing(st);
-  const markerMs = crossing?.closestContactMs ?? crossing?.closestMs;
-  const recommendation = recommendStepWindow(crossing, form, st?.latencyMs);
-  const previewStart = String(form.startMs).trim() !== "" && Number.isFinite(Number(form.startMs)) ? Number(form.startMs) : (config.startMs ?? 350);
-  const previewEnd = String(form.endMs).trim() !== "" && Number.isFinite(Number(form.endMs)) ? Number(form.endMs) : (config.endMs ?? 400);
-  const previewWindow = stepDuration => ({ left: `${Math.max(0, Math.min(100, previewStart / stepDuration * 100))}%`, width: `${Math.max(0, Math.min(stepDuration, previewEnd) - Math.max(0, Math.min(stepDuration, previewStart))) / stepDuration * 100}%` });
-  const prepareWindow = () => {
-    if (!recommendation.ready) return;
-    setDirty(true);
-    setForm(v => ({ ...v, startMs: recommendation.startMs, endMs: recommendation.endMs }));
-  };
-  const pct = v => `${Math.max(0,Math.min(100,v/(duration||600)*100))}%`;
-  const comparableCrossing = Boolean(crossing && duration > 0 && crossing.durationMs === duration);
-  const clicks = Math.ceil(((config.endMs??400)-(config.startMs??350))/(config.intervalMs||10));
+  const crossingPhase = stepCrossingPhase(crossing);
+  const comparable = Boolean(crossing && crossing.durationMs === duration && (!crossing.source || crossing.source === form.source));
+  const sourceName = value => STEP_CLICK_SOURCES.find(([id]) => id === value)?.[1] || "Sin referencia";
+  const referenceName = crossing ? crossing.referenceId === snapshot.selfId ? "tu keko" : crossing.referenceId === st?.targetId ? "el fichado" : `#${crossing.referenceId}` : "";
+  const pct = value => `${Math.max(0, Math.min(100, value / duration * 100))}%`;
+  const phasesLabel = allPhases.length <= 3 ? allPhases.map(value => `${value} ms`).join(" · ") : `${allPhases[0]}–${allPhases.at(-1)} ms · cada ${form.intervalMs} ms`;
   return <>
-    <PageHeading title="Autoclick por paso" description="Programa uno o varios golpes dentro del paso. Cada clic va exclusivamente al enemigo fichado en el juego." />
-    <section className="section">
+    <PageHeading title="Autoclick por paso" description="Elige cuándo enviar el golpe. Siempre va al enemigo que fichas en el juego." />
+    <section className="section step-click-config">
       <div className="master">
         <div><span className="master-label">Autoclick independiente</span><b className={`master-state tone-${config.enabled ? "good" : "muted"}`}>{state}</b></div>
         <Toggle label="Activar Autoclick por paso" checked={config.enabled} disabled={!config.enabled && !valid} onChange={apply} large tone="ember" />
       </div>
-      <p className="note">Al activarlo se apagan Timing, Board y Simon. El golpe usa la ficha actual; al quitarla, deja de disparar. Se respetan los aliados.</p>
-      <form onSubmit={e => { e.preventDefault(); apply(); }}>
+      <p className="note">Al activarlo se apagan Timing, Board y Simon. Sin ficha válida no dispara; se respetan los aliados.</p>
+      <form onSubmit={event => { event.preventDefault(); apply(); }}>
         <div className="spec">
-          <Setting title="Referencia del paso" text="Yo o fichado sigue a cualquiera de los dos, también cuando tú estás quieto. Mi keko y Fichado siguen solo a ese personaje. Cada nuevo paso reinicia la ventana." stack>
-            <div className="segmented" role="group" aria-label="Referencia del paso">{STEP_CLICK_SOURCES.map(([value, label]) => <button type="button" key={value} className={`seg ${form.source === value ? "is-on" : ""}`} aria-pressed={form.source === value} onClick={() => update("source", value)}>{label}</button>)}</div>
+          <Setting title="Envío por paso" text="Un golpe envía un único pedido en el momento elegido. Tres intentos agrega uno 20 ms antes y otro 20 ms después." stack>
+            <div className="segmented" role="group" aria-label="Envío por paso">{[["SINGLE", "Un golpe"], ["TRIPLE", "3 intentos"], ["CUSTOM", "Personalizado"]].map(([value, label]) => <button type="button" key={value} className={`seg ${form.pattern === value ? "is-on" : ""}`} aria-pressed={form.pattern === value} onClick={() => update("pattern", value)}>{label}</button>)}</div>
           </Setting>
-          <Setting title="Ventana e intervalo" text="Un clic al inicio y después cada X ms, hasta el final de la ventana o del paso. El final está excluido." stack>
-            <div className="step-click-fields">
-              {[["startMs", "Inicio (ms)", 0, 4999], ["endMs", "Final (ms)", 1, 5000], ["intervalMs", "Un clic cada (ms)", 1, 5000]].map(([key, label, min, max]) => <label key={key}>{label}<input className="input" type="number" required step="1" min={min} max={max} value={form[key]} onChange={e => update(key, e.target.value)} /></label>)}
-            </div>
-          </Setting>
+          {form.pattern !== "CUSTOM" ? <Setting title="Momento" text={form.pattern === "TRIPLE" ? "El pedido central sale aquí; los otros salen 20 ms antes y después." : "Milisegundos desde el inicio del paso recibido. Un único pedido se programa aquí."} stack>
+            <label className="step-click-moment"><span className="sr-only">Momento de envío en ms</span><input className="input mono" type="number" required step="1" min="0" max="4999" value={form.momentMs} onChange={event => update("momentMs", event.target.value)} /><span>ms</span></label>
+          </Setting> : <Setting title="Ventana personalizada" text="Tu configuración anterior se conserva. El primer pedido sale al inicio; el final queda excluido." stack>
+            <div className="step-click-fields">{[["startMs", "Inicio (ms)", 0, 4999], ["endMs", "Final (ms)", 1, 5000], ["intervalMs", "Intervalo (ms)", 1, 5000]].map(([key, label, min, max]) => <label key={key}>{label}<input className="input" type="number" required step="1" min={min} max={max} value={form[key]} onChange={event => update(key, event.target.value)} /></label>)}</div>
+          </Setting>}
         </div>
-        <div className="controls"><button type="submit" className="btn btn-primary" disabled={!dirty || !valid}>Aplicar ventana</button><button type="button" className="btn" disabled={!valid} onClick={() => update("intervalMs", Number(form.endMs) - Number(form.startMs))}>Un golpe</button><span className="note">{!valid ? "El final debe superar al inicio; intervalo de 1 a 5000 ms y máximo 256 clics por paso." : dirty ? "Cambios sin aplicar; la barra muestra la ventana preparada." : "Configuración aplicada."}</span></div>
-        <p className="note">En uso: cada {config.intervalMs || 10} ms entre {config.startMs ?? 350} y {config.endMs ?? 400} ms · {clicks} clic{clicks===1?'':'s'} si cabe la ventana. «Un golpe» prepara un solo pedido por paso.</p>
+        <div className="step-click-plan"><b>{valid ? phasesLabel : "Revisa los valores"}</b><span>{valid ? `${allPhases.length} pedido${allPhases.length === 1 ? "" : "s"} por paso, si caben en su duración.` : form.pattern === "CUSTOM" ? "Final mayor al inicio, intervalo de 1 a 5000 ms y máximo 256 pedidos." : "Usa un momento entero de 0 a 4999 ms."}</span></div>
+        <div className="controls"><button type="submit" className="btn btn-primary" disabled={!dirty || !valid}>Aplicar cambios</button><span className="note">{dirty ? "Vista previa · cambios sin aplicar." : "Configuración aplicada."}</span></div>
+        <details className="disclosure step-click-options">
+          <summary><span>Opciones · referencia del paso</span><span className="chev" aria-hidden="true" /></summary>
+          <div className="spec"><Setting title="Referencia" text="Yo o fichado sigue a cualquiera de los dos, incluso si uno está quieto. Cada paso nuevo renueva el reloj." stack>
+            <div className="segmented" role="group" aria-label="Referencia del paso">{STEP_CLICK_SOURCES.map(([value, label]) => <button type="button" key={value} className={`seg ${form.source === value ? "is-on" : ""}`} aria-pressed={form.source === value} onClick={() => update("source", value)}>{label}</button>)}</div>
+          </Setting></div>
+        </details>
       </form>
     </section>
-    <section className="section">
-      <h2 className="section-title">Paso en vivo <span className="section-meta">{running ? "en curso" : "esperando movimiento"}</span></h2>
-      <div className="step-click-clock"><b className="num">{number(phase)} <small>/ {duration || "—"} ms</small></b><span>{st?.targetId >= 0 ? `${st.targetName || "Fichado"} · #${st.targetId}` : "Sin enemigo fichado"}</span></div>
-      <div className="step-click-track" role="progressbar" aria-label="Milisegundos del paso" aria-valuemin={0} aria-valuemax={duration || 600} aria-valuenow={Math.round(phase || 0)}>
-        <span className="step-click-window" style={previewWindow(duration || 600)} />
-        {comparableCrossing && crossing.contactWindows?.map((w,i)=><span key={i} className="step-click-contact" style={{left:pct(w.fromMs),width:pct(Math.max(1,w.toMs-w.fromMs))}} title={`Contacto observado: ${number(w.fromMs)}–${number(w.toMs)} ms`} />)}
-        {comparableCrossing && markerMs!=null && <span className="step-click-cross-point" style={{left:pct(markerMs)}} title={`Cercanía ${crossing.closestContactMs!=null ? "con contacto" : "visual"} observada: ${number(markerMs)} ms`} />}
-        {phase != null && <span className="step-click-needle" style={{ left: `${phase / (duration || 600) * 100}%` }} />}
+    <section className="section" aria-labelledby="step-live-title">
+      <h2 id="step-live-title" className="section-title">Paso y envíos <span className="section-meta">{sourceName(form.source)}</span></h2>
+      <div className="step-click-clock"><b className="num">{number(phase)} <small>/ {st?.durationMs || "—"} ms</small></b><span>{st?.targetId >= 0 ? st.targetName || `Fichado #${st.targetId}` : "Sin enemigo fichado"} · {running ? "en movimiento" : "esperando paso"}</span></div>
+      <div className="step-click-track" role="progressbar" aria-label="Milisegundos del paso" aria-valuemin={0} aria-valuemax={duration} aria-valuenow={Math.round(phase || 0)}>
+        {form.pattern === "CUSTOM" && valid && <span className="step-click-window" style={{ left: pct(Number(form.startMs)), width: pct(Math.max(0, Math.min(duration, Number(form.endMs)) - Math.min(duration, Number(form.startMs)))) }} />}
+        {preparedPhases.map(value => <span key={value} className="step-click-send-point" style={{ left: pct(value) }} title={`Pedido configurado: ${value} ms`} />)}
+        {comparable && <span className="step-click-cross-point" style={{ left: pct(crossingPhase) }} title={`Último cruce visual completo: ${number(crossingPhase)} ms`} />}
+        {phase != null && <span className="step-click-needle" style={{ left: pct(phase) }} />}
       </div>
-      <div className="step-click-legend"><span>Rojo · ventana preparada</span><span>Verde · contacto en grilla</span><span>Azul · cercanía medida</span></div>
-      <div className="step-click-cross-label" aria-live="polite">
-        {crossing?.closestMs!=null && crossing.samples>=2 ? <><b>◆ Máxima cercanía visual: {number(crossing.closestMs)} ms</b><span>En un paso de {number(crossing.durationMs)} ms · {crossing.closestMs<(config.startMs??350) ? `${number((config.startMs??350)-crossing.closestMs)} ms antes de tu ventana` : crossing.closestMs>=(config.endMs??400) ? `${number(crossing.closestMs-(config.endMs??400))} ms después del final` : "dentro de tu ventana"}{!crossing.complete ? " · muestra parcial" : ""}</span><span>{crossing.contactFromMs!=null ? `Contacto en grilla observado: ${number(crossing.contactFromMs)}–${number(crossing.contactToMs)} ms` : "Sin contacto en grilla observado en esta muestra"}</span></> : <span>Esperando muestras del cruce con el fichado.</span>}
-      </div>
-      <p className="note">{st?.clockSource === "socket_worker" ? "Paso recibido directamente del juego." : st?.clockSource === "client_dispatch" ? "Paso leído por el cliente." : st?.clockSource === "native_animation" ? "Paso tomado de la animación nativa." : "Todavía no llegó un paso."} La fase se mide en el cliente. Cada paso real renueva el reloj; no se inventan ciclos al quedarse quieto.</p>
-      <dl className="readout">
-        <div><dt>Clics enviados</dt><dd className="num">{st?.sent ?? 0}</dd></div>
-        <div><dt>Pasos detectados</dt><dd className="num">{st?.steps ?? 0}</dd></div>
-        <div><dt>Clics descartados</dt><dd className="num">{st?.skipped ?? 0}</dd></div>
-        <div><dt>Errores</dt><dd className="num">{st?.errors ?? 0}</dd></div>
-        <div><dt>Último clic</dt><dd className="num">{number(st?.last?.phaseMs)} ms</dd></div>
-        <div><dt>Clic programado</dt><dd className="num">{number(st?.last?.plannedPhaseMs)} ms</dd></div>
-        <div><dt>Llegada estimada del último clic</dt><dd className="num">{number(st?.last?.estimatedLandingMs)} ms</dd></div>
-        <div><dt>Retraso del último clic</dt><dd className="num">{number(st?.last?.latenessMs)} ms</dd></div>
+      <div className="step-click-axis"><span>0 ms</span><span>{duration / 2} ms</span><span>{duration} ms</span></div>
+      <div className="step-click-legend"><span>Rojo · pedidos configurados</span><span>Azul · último cruce visual completo</span></div>
+      {valid && preparedPhases.length < allPhases.length && st?.durationMs > 0 && <p className="note is-warn">{allPhases.length - preparedPhases.length} pedido(s) quedan fuera de este paso de {duration} ms y se omiten.</p>}
+      <div className="step-click-cross-label" aria-live="polite">{crossing ? <>
+        <b>Cruce visual completo: {number(crossingPhase)} ms en un paso de {number(crossing.durationMs)} ms</b>
+        <span>{STEP_MOTION_LABELS[crossing.motionKind] || "Movimiento medido"} · referencia: {sourceName(crossing.source)}{crossing.referenceId != null ? ` (${referenceName})` : ""}{crossing.clockSource === "native_animation" ? " · animación nativa" : crossing.clockSource ? " · paso recibido" : ""}</span>
+        {!comparable && <span>La referencia o duración es distinta; su azul no se superpone a este paso.</span>}
+      </> : <span>Esperando un cruce completo con el fichado. Las muestras parciales no cambian el azul.</span>}</div>
+      <p className="note">El azul mide cercanía visual, no un golpe aceptado. Puede variar según cómo se muevan ambos; se conserva hasta terminar el siguiente cruce.</p>
+      <dl className="readout step-click-readout">
+        <div><dt>Pedidos enviados</dt><dd className="num">{st?.sent ?? 0}</dd></div>
+        <div><dt>Pedidos omitidos</dt><dd className="num">{st?.skipped ?? 0}</dd></div>
+        <div><dt>Último envío</dt><dd className="num">{number(st?.last?.phaseMs)} ms</dd></div>
+        {st?.errors > 0 && <div><dt>Errores de envío</dt><dd className="num is-warn">{st.errors}</dd></div>}
       </dl>
-      <h3 className="section-title">Cruce con el fichado <span className="section-meta">{crossing?.active ? "en medición" : crossing?.complete ? "último paso medido" : crossing ? "muestra parcial" : "sin muestra"}</span></h3>
-      <div className="controls"><button className="btn" disabled={!recommendation.ready} onClick={prepareWindow}>Preparar ventana para este cruce</button><span className="note">{recommendation.ready ? `Centro de envío estimado: ${recommendation.centerMs} ms · cercanía con contacto ${number(recommendation.contactMs)} ms − conexión ${number(recommendation.latencyMs)} ms. Estimación, no garantiza aceptación.` : recommendation.reason}</span></div>
-      {crossing?.closestMs!=null && crossing.samples>=2 && <div className="step-click-measured" aria-label="Ventana del cruce medido">
-        <div className="step-click-track">
-          <span className="step-click-window" style={previewWindow(crossing.durationMs)} />
-          {crossing.contactWindows?.map((w,i)=><span key={i} className="step-click-contact" style={{left:`${w.fromMs/crossing.durationMs*100}%`,width:`${Math.max(1,w.toMs-w.fromMs)/crossing.durationMs*100}%`}} />)}
-          <span className="step-click-cross-point" style={{left:`${Math.min(100,markerMs/crossing.durationMs*100)}%`}} title="Cercanía medida; no confirma un golpe aceptado" />
-        </div>
-        <div className="step-click-axis"><span>0 ms</span><span>{number(crossing.durationMs/2)} ms</span><span>{number(crossing.durationMs)} ms</span></div>
-      </div>}
-      <dl className="readout">
-        <div><dt>Máxima cercanía observada</dt><dd className="num">{number(crossing?.closestMs)} ms</dd></div>
-        <div><dt>Cercanía con contacto</dt><dd className="num">{number(crossing?.closestContactMs)} ms</dd></div>
-        <div><dt>Conexión (ida y vuelta)</dt><dd className="num">{number(st?.latencyMs)} ms</dd></div>
-        <div><dt>Distancia visual mínima</dt><dd className="num">{number(crossing?.distancePx)} px</dd></div>
-        <div><dt>Contacto en grilla</dt><dd className="num">{crossing?.contactWindows?.length ? crossing.contactWindows.map(w=>`${number(w.fromMs)}–${number(w.toMs)} ms`).join(" · ") : crossing?.contactFromMs!=null ? `${number(crossing.contactFromMs)}–${number(crossing.contactToMs)} ms` : "Sin contacto observado"}</dd></div>
-        <div><dt>Resolución de lectura</dt><dd className="num">{number(crossing?.resolutionMs)} ms · {crossing?.samples ?? 0} muestras</dd></div>
-      </dl>
-      <p className="note">La última medición queda marcada mientras llega la siguiente. Se leen tus posiciones y las del fichado en cada cuadro. La máxima cercanía es visual; la ventana de envío que produce un golpe aceptado también depende de la conexión y del servidor.</p>
-      <p className="note">Un envío no confirma un golpe aceptado. Se descarta cualquier clic fuera de la ventana o con más de 8 ms de retraso.</p>
+      {st?.last && !st.last.sent && <p className="note">Último pedido: {STEP_CLICK_REASONS[st.last.reason] || st.last.reason}.</p>}
     </section>
   </>;
 }
+
 
 // Simon Dice (06/10): the runtime reads each cartel and touches the asked face.
 const SIMON_DELAYS = [[0, "Al instante"], [150, "150 ms"], [300, "300 ms"], [600, "600 ms"]];
@@ -731,7 +732,7 @@ function SimonView({ snapshot, runAction }) {
 function allyLabel(ally) { return ally.name || `Cuenta ${ally.accountId}`; }
 function AlliesRow({ snapshot, setActiveTab }) {
   const allies = Array.isArray(snapshot.allies) ? snapshot.allies : [];
-  const text = allies.length ? `Nunca les pega a ${allies.slice(0, 3).map(allyLabel).join(" · ")}${allies.length > 3 ? ` y ${allies.length - 3} más` : ""}.` : "El bot le pega a cualquiera.";
+  const text = allies.length ? `Nunca les pega a ${allies.slice(0, 3).map(allyLabel).join(" · ")}${allies.length > 3 ? ` y ${allies.length - 3} más` : ""}.` : "No hay aliados excluidos.";
   return <Setting title="Aliados" text={text}>
     <button className="btn" onClick={() => setActiveTab("allies")}>Elegir aliados <ArrowRight aria-hidden="true" size={14} /></button>
   </Setting>;
@@ -787,21 +788,23 @@ function AlliesView({ snapshot, players, portraits, runAction }) {
 
 // Arrival of the tick click: Auto (learned) or a fixed T + N ms to compare settings.
 function TickAimRow({ snapshot, runAction }) {
+  const fixedPhase = timingFixedPhase(snapshot);
   const aim = snapshot.tickAim ?? null;
   const auto = snapshot.tick?.auto;
   const base = aim ?? auto?.aimMs ?? 10;
   const setAim = (value) => runAction(() => api.setTickAim(value));
   const boundary = auto?.boundaryMs;
   const below = aim != null && boundary != null && aim < boundary;
-  return <Setting title="Llegada del click" text={<>{aim == null ? `Automática: se aprende sola${auto?.aimMs != null ? ` (ahora ${signedMs(auto.aimMs)})` : ""}.` : `Manual: cada click apunta a ${signedMs(aim)}.`}{below ? <span className="is-warn">{` Está antes del borde (${signedMs(boundary)}): el server lo va a rechazar.`}</span> : ""}</>} stack>
+  if (fixedPhase != null) return <Setting title="Fase principal" text={<>En cruces normales, un pedido por paso con fase fija {signedMs(fixedPhase)}. Puede recuperar el pedido al terminar una animación de golpe o coco.{!snapshot.connected ? " Pendiente de conectar el juego." : ""}</>}><b className="mono">{signedMs(fixedPhase)}</b></Setting>;
+  return <Setting title="Llegada del pedido" text={<>{aim == null ? `Perfil del motor${auto?.aimMs != null ? `: ${signedMs(auto.aimMs)}` : ""}.` : `Cada pedido apunta a ${signedMs(aim)}.`} Un pedido por paso en el perfil actual.{below ? <span className="is-warn">{` Está antes de la frontera medida (${signedMs(boundary)}).`}</span> : ""}</>} stack>
     <div className="controls">
       <div className="segmented" role="group" aria-label="Llegada del click">
-        <button className={`seg ${aim == null ? "is-on" : ""}`} aria-pressed={aim == null} onClick={() => setAim(null)}>Auto</button>
+        <button className={`seg ${aim == null ? "is-on" : ""}`} aria-pressed={aim == null} onClick={() => setAim(null)}>Perfil</button>
         {[0, 5, 8, 10, 12, 15, 20].map((v) => <button key={v} className={`seg ${aim === v ? "is-on" : ""}`} aria-pressed={aim === v} onClick={() => setAim(v)}>{v}</button>)}
       </div>
       <div className={`stepper ${below ? "is-warn" : ""}`}>
         <button className="stepper-btn" aria-label="Restar 1 ms" onClick={() => setAim(Math.max(0, base - 1))}>−</button>
-        <b className="stepper-value mono">{aim == null ? "Auto" : signedMs(aim)}</b>
+        <b className="stepper-value mono">{aim == null ? "Perfil" : signedMs(aim)}</b>
         <button className="stepper-btn" aria-label="Sumar 1 ms" onClick={() => setAim(Math.min(120, base + 1))}>+</button>
       </div>
     </div>

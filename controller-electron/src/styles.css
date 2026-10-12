@@ -13,17 +13,31 @@
 .step-click-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 180px)); gap: 16px; }
 .step-click-fields label { display: grid; gap: 6px; color: var(--color-ink-2); }
 .step-click-fields .input { width: 100%; }
+.step-click-moment { display: flex; align-items: center; gap: 10px; max-width: 240px; }
+.step-click-moment .input { min-width: 0; width: 170px; flex: none; font-size: var(--text-lg); }
+.step-click-plan { display: grid; gap: 5px; margin: 18px 0; }
+.step-click-plan b { color: var(--color-accent); font-family: var(--font-mono); font-weight: 500; }
+.step-click-plan span { color: var(--color-muted); }
+.step-click-options { margin-top: 24px; }
+.step-click-options .spec { margin-top: 8px; }
+.step-click-readout { margin-top: 18px; }
+.step-click-config .master { padding: 16px 0; }
+.step-click-config > form > .spec { display: grid; grid-template-columns: minmax(0, 1fr) minmax(190px, 280px); gap: 24px; }
+.step-click-config > form > .spec > .spec-row { padding: 16px 0; align-content: start; }
+.step-click-config > form > .spec:has(.step-click-fields) { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.step-click-config .spec-text p { max-width: 57ch; }
 .step-click-clock { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin: 20px 0 14px; }
 .step-click-clock > b { font-size: var(--text-xl); }
 .step-click-clock small { font-size: var(--text-md); color: var(--color-muted); font-weight: 400; }
 .step-click-track { position: relative; height: 16px; background: var(--color-paper-3); border: 1px solid var(--color-rule); margin-bottom: 14px; }
 .step-click-window { position: absolute; top: 0; bottom: 0; background: var(--color-accent-fill); }
+.step-click-send-point { position: absolute; top: -3px; bottom: -3px; width: 3px; background: var(--color-accent); transform: translateX(-50%); }
 .step-click-needle { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--color-ink); transform: translateX(-1px); }
 .step-click-contact { position: absolute; height: 4px; bottom: -6px; background: #57bb87; }
 .step-click-cross-point { position: absolute; top: -7px; width: 9px; height: 9px; background: #65b8f2; transform: translateX(-50%) rotate(45deg); }
 .step-click-legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: var(--text-sm); margin: 18px 0; color: var(--color-muted); }
-.step-click-legend span:nth-child(2) { color: #57bb87; }
-.step-click-legend span:nth-child(3) { color: #65b8f2; }
+.step-click-legend span:first-child { color: var(--color-accent); }
+.step-click-legend span:nth-child(2) { color: #65b8f2; }
 .step-click-cross-label { display: grid; gap: 5px; padding: 12px 0; color: #65b8f2; }
 .step-click-cross-label span { color: var(--color-muted); }
 .step-click-measured { margin: 24px 0; }
@@ -31,6 +45,10 @@
 @media (max-width: 600px) {
   .step-click-fields { grid-template-columns: 1fr; }
   .step-click-clock { flex-wrap: wrap; }
+}
+@media (max-width: 980px) {
+  .step-click-config > form > .spec { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .step-click-config > form > .spec > .spec-row { padding: 12px 0; }
 }
 html, body { overflow-x: clip; }
 html { background: var(--color-paper); }
