@@ -52,4 +52,22 @@ check('departed cached ID',()=>{
  assert.equal(f.q.firePunch(7,'TICK_REPEAT',{bypassThrottle:true}),false,'an actor cache cannot authorize a departed ID');assert.equal(f.ctx.sends.length,0);
  console.log('PASS cached actor with no live avatar cannot receive an automatic request');
 });
+check('queued native incarnation replacement',()=>{
+ const f=fixture();
+ f.run("globalThis.old=s.providers.renderer.instance.avatars.get(7);E.origin=0;E.plans.set('TICK:17',{n:17,shots:[{phase:110,k:1,b:0,repeat:true}],fired:0,burst:1,burstTarget:7,burstAvatar:old,burstReactive:false,burstScore:1,o:0});s.providers.renderer.instance.avatars.set(7,{...old,avatarInfo:{id:701,username:'Replacement'}});q.tickOnWorkerFire({planId:'TICK:17',index:0,dueAt:t,seq:s.seq})");
+ assert.equal(f.ctx.sends.length,0);assert.equal(f.q.state.tickEngine.stats.lastSkip,'target_replaced');
+ console.log('PASS a queued repeat cannot follow a recycled room ID to a different native avatar');
+});
+check('precomputed target native incarnation replacement',()=>{
+ const f=fixture();
+ f.run("globalThis.old=s.providers.renderer.instance.avatars.get(7);E.origin=0;E.plans.set('TICK:17',{n:17,shots:[{phase:110,k:0,b:0}],fired:0,burst:1,pre:{pick:{id:7,reactive:false,score:1},avatar:old},o:0});s.providers.renderer.instance.avatars.set(7,{...old,position:{x:20,y:20},avatarInfo:{id:701,username:'Replacement'}});q.tickOnWorkerFire({planId:'TICK:17',index:0,dueAt:t,seq:s.seq})");
+ assert.equal(f.ctx.sends.length,0,'a cached proximity choice cannot be applied to a different far-away avatar');
+ console.log('PASS replacement invalidates a precomputed target before the first automatic shot');
+});
+check('precomputed eliminated target can yield to a living neighbour',()=>{
+ const f=fixture();
+ f.run("E.origin=0;E.out.add(7);s.providers.renderer.instance.avatars.set(2,{position:{x:11,y:11},avatarInfo:{id:200,username:'Living'}});E.plans.set('TICK:17',{n:17,shots:[{phase:110,k:0,b:0}],fired:0,burst:1,pre:{pick:{id:7,reactive:false,score:1}},o:0});q.tickOnWorkerFire({planId:'TICK:17',index:0,dueAt:t,seq:s.seq})");
+ assert.deepEqual(Array.from(f.ctx.sends),[2]);
+ console.log('PASS a dead cached target is reconsidered and the living contact receives the shot');
+});
 if(failures)process.exitCode=1;

@@ -217,6 +217,7 @@ function wireIpc() {
   handle("controller:applyStepWalk", (_event, payload) => core.applyStepWalk(payload || {}));
   handle("controller:applyFreeFire", (_event, payload) => core.applyFreeFire(payload || {}));
   handle("controller:applySimon", (_event, payload) => core.applySimon(payload && typeof payload === "object" ? { enabled: payload.enabled, delayMs: payload.delayMs } : {}));
+  handle("controller:applyStepClick", (_event, payload) => core.applyStepClick(payload && typeof payload === "object" ? { enabled: payload.enabled, source: payload.source, startMs: payload.startMs, endMs: payload.endMs, intervalMs: payload.intervalMs, clicks: payload.clicks } : {}));
   handle("controller:setAllies", (_event, value) => core.setAllies(value));
   handle("controller:toggleAlly", (_event, value) => core.toggleAlly(value && typeof value === "object" ? { accountId: value.accountId, name: value.name } : null));
   handle("controller:addAllyByName", (_event, name) => core.addAllyByName(typeof name === "string" ? name : ""));
@@ -368,6 +369,15 @@ function lockDownRuntime(state) {
   }
 }
 
+function punchIsolationPhaseFromEnvironment(isPackaged, env = process.env) {
+  // Promote the exact single-request T+13 profile validated in the 9–2 session.
+  // Packaged builds always use it; source launches can still run phase probes.
+  if (isPackaged || env.BB_TIMING_PUNCH_ISOLATION !== "1") return 13;
+  const raw = typeof env.BB_TIMING_PUNCH_ISOLATION_PHASE === "string" ? env.BB_TIMING_PUNCH_ISOLATION_PHASE.trim() : "";
+  const phase = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) ? Number(raw) : NaN;
+  return Number.isFinite(phase) && phase >= -20 && phase <= 40 ? phase : 13;
+}
+
 function startApp() {
   const state = currentLicense().state;
   if (!gate.isUsable(state)) { openLicenseWindow({ mode: "locked", state }); return; }
@@ -383,6 +393,7 @@ function startApp() {
   appLog("startApp (licencia OK)");
   core = new ControllerCore({
     autoPort: true,
+    punchIsolationPhase: punchIsolationPhaseFromEnvironment(app.isPackaged),
     settingsPath: path.join(app.getPath("userData"), "settings.json")
   });
   updater = createUpdater({ app, onChange: () => sendSnapshot(core.snapshot()), beforeInstall: () => {

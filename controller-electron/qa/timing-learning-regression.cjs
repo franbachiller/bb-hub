@@ -20,8 +20,8 @@ assert.equal(E.auto.margin, 14, "a loss to rival 8 cannot adjust the click aimed
 console.log("PASS multi-rival learning: an untargeted rival does not change the aim");
 E.auto.B = -10;
 E.auto.margin = 10;
-assert.equal(tickEffective().offset, 10, "Auto preserves the historical T+10 arrival floor even with a negative saved boundary");
-console.log("PASS Auto arrival: a negative boundary cannot put the click before T+10");
+assert.equal(tickEffective().offset, 0, "Auto combines the measured boundary and margin without a second fixed floor");
+console.log("PASS Auto arrival: the current boundary plus margin determines the aim");
 E.origin = 0;
 E.shots = [
   {o: 0, n: 2, k: 0, b: 0, ok: true, matched: false, targetId: 7, phase: 10, sentAt: 1000},

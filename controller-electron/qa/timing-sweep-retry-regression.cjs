@@ -69,8 +69,8 @@ check('Launch retry preserves one confirmed-contact reaction after the shared ga
  const f=fixture();f.run('fire()');assert.equal(f.ctx.sent.length,1);
  f.run('t=136279;E.lastBatchTick=227;E.lastBatchAt=t;s.actors.clear();s.providers.renderer.instance.avatars.get(7).position={x:14,y:13};s.providers.renderer.instance.avatars.get(0).position={x:13,y:12};q.reactCheck()');
  assert.equal(f.ctx.sent.length,1,'contact cannot send inside the retry gap');
- const pending=f.timers.slice(-2);assert.deepEqual(pending.map(x=>x.ms),[40,46]);
+ const pending=f.timers.filter(x=>x.ms>0);assert.deepEqual(pending.map(x=>x.ms),[40]);
  f.ctx.t=136319;pending[0].fn();assert.equal(f.ctx.sent.length,2);assert.equal(f.ctx.sent[1].id,0);assert.equal(f.ctx.sent[1].reason,'REACT_FALLBACK');
- f.ctx.t=136325;pending[1].fn();assert.equal(f.ctx.sent.length,2,'backup timer does not duplicate the successful fallback');
+ f.ctx.t=136325;pending[0].fn();assert.equal(f.ctx.sent.length,2,'a delivered callback cannot duplicate the successful fallback');
 });
 if(failed)process.exitCode=1;

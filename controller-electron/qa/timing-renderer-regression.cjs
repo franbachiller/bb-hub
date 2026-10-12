@@ -26,7 +26,16 @@ q.state.actors.set(7,{fromX:10,fromY:10,toX:11,toY:11,startAt:clock,stepMs:600,d
 R.moveUser(7,{x:11,y:11,z:1},false,false);
 assert.equal(q.state.actors.get(7).key,"packet-step","rendering a step already captured from 182 must not reset its timing or direction");
 console.log("PASS ordinary rendering: the 182 step retains its timestamp and direction");
+R.moveUser(7,{x:11,y:11,z:1},true,false);
+assert.equal(q.state.actors.get(7).key,"packet-step","the unused third native argument is not the instant-placement flag");
+console.log("PASS native flags: only the fourth argument requests an instant placement");
 R.fail=true;
 assert.throws(()=>R.moveUser(7,{x:13,y:13,z:1},true,true),/native failure/);
 assert.equal(q.state.actors.get(7).key,"packet-step","a rejected native move must not change timing's position");
 console.log("PASS native errors: the error propagates and the rejected position is not applied");
+R.fail=false;
+R.avatars.set(7,{position:{x:18,y:18,z:1},avatarInfo:{id:701,username:"NewRival"}});
+assert.equal(q.ensureActorFromRenderer(7).toX,18,"reusing an ID must not retain the old avatar's in-flight position");
+R.avatars.delete(7);
+assert.equal(q.ensureActorFromRenderer(7),null,"a removed native avatar has no usable actor cache");
+console.log("PASS avatar lifecycle: replacement invalidates old motion and removal invalidates cached position");

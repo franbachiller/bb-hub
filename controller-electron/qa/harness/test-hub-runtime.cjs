@@ -358,10 +358,11 @@ const api = context.__BBFlashRuntime;
   api.onHubMessage({ type: "timing_config", tick: { shots: 4 } });
   const pump = intervals.filter((i) => i.ms === 8).at(-1).fn;
   const tickArms = () => armed.filter((m) => m.window === "TICK");
-  // Pet walks still mark server ticks; batches arrive at 200 (mod 600) locally.
+  // Only player walks establish this clock; NPC/pet movement is a separate
+  // animation domain and must not move UpperAll's phase.
   for (const at of [20000, 20600, 21200]) {
     context.time = at;
-    inbound(182, 0, [2, 50, 12, 12, 2, 600, 0]);
+    inbound(182, 0, [1, 50, 12, 12, 2, 600, 0]);
   }
   assert.equal(api.status().tick.origin, 200);
   context.time = 21250;
@@ -416,7 +417,7 @@ const api = context.__BBFlashRuntime;
   console.log("PASS TICK engine: tick grid, dense burst after T at the fichado, reactive check, 144 calibration, room reset");
 
   // TICK autotune: learns the contact switch B from ticks where the contact
-  // with the fichado changed, and moves the margin with every race.
+  // rival changed; only attributable requests can train the boundary/margin.
   const storage = new Map();
   context.localStorage = {
     getItem: (k) => (storage.has(k) ? storage.get(k) : null),
@@ -443,7 +444,8 @@ const api = context.__BBFlashRuntime;
   pumpAt(36935);                            // tick 61 classified: lost the race by landing early
   let auto = api.status().tick.auto;
   assert.equal(auto.races, 1);
-  assert.equal(auto.early, 1);
+  assert.equal(auto.early, 0);
+  assert.equal(auto.lost, 1, "an untagged reject with no dispatched shot cannot prove an early primary");
   assert.equal(auto.marginMs, 10); // no click aimed at that tick: the aim learns nothing
   assert.equal(auto.rivalMedianMs, 3);
   context.time = 37190; inbound(211, 0, [1, 1, 1, 10, 10, 1, 7, 11, 11]); // our hit at T-10...
@@ -454,7 +456,7 @@ const api = context.__BBFlashRuntime;
   auto = api.status().tick.auto;
   // 27/09: only the 144 at -5. A 211 phase is landing + hold, so our hits (-10,
   // +8, no click aimed at those ticks) and the rival hit (+3) are not samples.
-  assert.equal(auto.samples, 1);
+  assert.equal(auto.samples, 0, "no request was dispatched for these injected replies");
   assert.equal(auto.boundaryMs, 0);         // between -5 (rejected) and +3 (accepted): the prior 0 fits
   assert.equal(auto.wins, 1);
   assert.equal(auto.marginMs, 10);           // a win without the tick click does not move it
@@ -468,11 +470,11 @@ const api = context.__BBFlashRuntime;
   const corr = api.status().tick.corrMs;
   assert.equal(Math.round(autoPlan.fires[0].dueAt + 170 + corr - n * 600), 10);
   // Learned values persist (localStorage, at most every 15 s) and a reset clears them.
-  assert.equal(JSON.parse(storage.get("bbhub.tickAuto.v5")).samples.length, 1); // saved after the first race (only the 144 at -5)
+  assert.equal(JSON.parse(storage.get("bbhub.tickAuto.v5")).samples.length, 0);
   pumpAt(38300 + 15000);
   const saved = JSON.parse(storage.get("bbhub.tickAuto.v5"));
   assert.equal(saved.margin, 10);
-  assert.equal(saved.samples.length, 1);
+  assert.equal(saved.samples.length, 0);
   api.onHubMessage({ type: "tick_auto_reset" });
   assert.equal(api.status().tick.auto.races, 0);
   assert.equal(api.status().tick.auto.aimMs, 10);
@@ -487,14 +489,14 @@ const api = context.__BBFlashRuntime;
   context.time = 54716; inbound(211, 0, [1, 1, 1, 10, 10, 1, 7, 11, 11]); // follow-up hits at T+116
   pumpAt(54935);
   auto = api.status().tick.auto;
-  assert.deepEqual([auto.races, auto.wins, auto.rescued, auto.marginMs], [1, 1, 1, 10]);
+  assert.deepEqual([auto.races, auto.wins, auto.rescued, auto.marginMs], [1, 1, 0, 10]);
   rivalAt(55200, 13, 11); pumpAt(55245);   // tick 92: contact lost, no replies
   context.time = 55540; inbound(144, 0, []); // stale reject, T-260 of tick 93
   rivalAt(55800, 11, 11); pumpAt(55845);   // tick 93: new contact
   context.time = 55806; inbound(211, 0, [1, 1, 7, 11, 11, 1, 1, 10, 10]); // fichado first at T+6
   pumpAt(56135);
   auto = api.status().tick.auto;
-  assert.deepEqual([auto.races, auto.late, auto.early, auto.marginMs], [2, 1, 0, 10]);
+  assert.deepEqual([auto.races, auto.lost, auto.early, auto.marginMs], [2, 1, 0, 10]);
   // Manual mode keeps the Hub values.
   api.onHubMessage({ type: "timing_config", tick: { auto: false, offsetMs: 30 } });
   assert.equal(api.status().tick.auto.aimMs, 30);
@@ -574,7 +576,7 @@ const api = context.__BBFlashRuntime;
     context.time = 68400; inbound(182, 0, [1, 50, 20, 20, 2, 600, 0]);
     context.time = 68634; inbound(184, 120, [100, 35, 35]);
     const exitPlan2 = exitArms().at(-1);
-    assert.equal(exitPlan2.fires.length, 1, "single mode: one exit click");
+    assert.equal(exitPlan2.fires.length, 2, "single mode keeps its contact backup after the shared gap");
     const framesExit2 = run("fixture.Socket.instance.frames.length");
     context.time = exitPlan2.fires[0].dueAt;
     context.__worker.onmessage({ data: { type: "fire", planId: exitPlan2.planId, index: 0, dueAt: exitPlan2.fires[0].dueAt, window: "EXIT" } });
@@ -591,6 +593,16 @@ const api = context.__BBFlashRuntime;
   // rival 22 walks in. TICK aims at 22 (the threat), and the punch exit fires
   // at 22 right after our 100 ms server lock.
   run(`fixture.Renderer.instance.avatars.set(22, { position: { x: 13, y: 13, z: 1 }, avatarInfo: { id: 2100, username: "Two" } })`);
+  // This is a new fight: the preceding EXIT test landed our own punch, which
+  // leaves a real 14 s animation lock and an eliminated rival in that round.
+  context.time = 70790;
+  inbound(160, 126, []);
+  // These legacy scenarios reuse absolute clock ranges. Establish a request
+  // in this scenario's clock, so the later EXIT fixture's future timestamp
+  // cannot masquerade as an ongoing shared cooldown here.
+  context.time = 70795;
+  run("fixture.Upper.instance.lastUpperAt = -1e9");
+  api.fire(7);
   api.onHubMessage({
     type: "timing_config", enabled: true, source: "STEP", start: 430, end: 750,
     tick: { enabled: true, auto: false, offsetMs: 10, shots: 1, spacingMs: 110, burst: 1, burstGapMs: 4, blind: true, reactive: true, autoCal: true }
@@ -665,7 +677,7 @@ const api = context.__BBFlashRuntime;
   pendingFire.fn();
   // v6_60: the batch also queues the tick preflight (0 ms); run it out of the way.
   for (let i = 0; i < timers.length; ) if (!timers[i].ms) timers.splice(i, 1)[0].fn(); else i++;
-  assert.deepEqual(Array.from(timers, (x) => x.ms), [71, 77], "waits for the lock: 75000 + 101 and + 107");
+  assert.deepEqual(Array.from(timers, (x) => x.ms), [71], "one fallback waits for the current lock: 75000 + 101");
   const framesLock = run("fixture.Socket.instance.frames.length");
   context.time = 75101;
   timers.shift().fn();
@@ -881,7 +893,7 @@ const api = context.__BBFlashRuntime;
   // 29/09 (cryptic vs iBjorn): a click right after a reply falls in the server gap and
   // says nothing; in the Ring a mute lasts 1.8 s, not 8 s.
   {
-    const T3 = T2 + 20000;
+    const T3 = T2 + 6000;
     context.time = T3 - 500; // an answered click: clears what the tests above left counted
     api.onHubMessage({ type: "pulse_config", enabled: true, burst: 1 });
     api.onHubMessage({ type: "pulse_config", enabled: false });
@@ -928,7 +940,7 @@ const api = context.__BBFlashRuntime;
   context.time = T3 + 83; inbound(211, 0, [1, 1, 33, 11, 11, 1, 1, 10, 10]); // and wins: no 144 for us
   context.time = T3 + 90; inbound(160, 126, []); // the round ends at once: judged before the reset
   const marginLoss1 = api.status().tick.auto.marginMs;
-  assert.ok(marginLoss1 < marginLoss0 && marginLoss1 >= marginLoss0 - 3, "our click was valid but later: aim earlier (down to the floor)");
+  assert.equal(marginLoss1, marginLoss0, "a loss without a primary reply cannot prove its arrival order or move the aim");
   run("fixture.Renderer.instance.avatars").delete(33);
   run("fixture.Renderer.instance.avatars").set(7, saved7);
   api.onHubMessage({ type: "timing_config", enabled: false, source: "STEP" });

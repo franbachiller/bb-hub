@@ -61,6 +61,22 @@ check('STATE movement still arms when the inactive TICK option remains enabled',
 check('automatic pulse prioritizes its own proximity choice',()=>{
  for(const id of selections){const f=fixture(id);Object.assign(f.q.state.pulse,{autoTarget:true,requireSelected:true,contactOnly:true,autoRange:2});assert.equal(f.q.pulseTargetId(),7,'fichado='+id)}
 });
+check('STATE coalesces several moves before dispatch into one current choice',()=>{
+ const f=fixture(9);f.q.state.timing.source='STATE';
+ for(const id of [7,9,1])f.q.scheduleStatePunch(id,'in_move');
+ for(const t of f.timers)t.fn();assert.deepEqual(f.sends,[7]);
+});
+check('contact edge does not consume a failed native dispatch',()=>{
+ const f=fixture(9);f.q.state.timing.tick.enabled=false;f.q.state.timing.contactGate=true;f.q.state.timing.start=0;f.q.state.timing.end=0;
+ const upper=f.q.state.providers.upper.instance,send=upper.upperRequest;upper.upperRequest=()=>{};
+ f.q.contactEdgePump();assert.equal(f.q.state.contactEdge.wasContact,false);
+ upper.upperRequest=send;f.c.performance.now=()=>1013;f.q.contactEdgePump();assert.deepEqual(f.sends,[7]);
+});
+check('landing contact remains pending until the current request gap opens',()=>{
+ const f=fixture(-1);f.q.state.timing.tick.enabled=false;f.q.state.timing.landing.enabled=true;f.q.state.lastPunch.at=950;
+ f.q.landingContactPump();assert.equal(f.q.state.landingC.wasContact,false);assert.deepEqual(f.sends,[]);
+ f.c.performance.now=()=>1071;f.q.landingContactPump();assert.deepEqual(f.sends,[7]);
+});
 check('Board receives no ficha priority or entity target lock',()=>{
  const {ControllerCore}=require(path.join(base,'controller-core.cjs'));
  for(const id of selections){const core=new ControllerCore({ringBoard:false,settingsPath:path.join(__dirname,'../../tmp/nonexistent-selection-fixture.json')});

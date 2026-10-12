@@ -1,0 +1,60 @@
+{
+  "version": "0.1.22",
+  "channel": "stable",
+  "platform": "Windows x64",
+  "status": "published (GitHub + Cryptlex Production)",
+  "runtimeBuild": "12102026_html5_step_click_encounter_preview",
+  "runtimeSha256": "0fec5b67496d1f2e08891029bb4e7ae36f448a71beea8c1c52eea29892429260",
+  "installer": "BB Hub Setup 0.1.22.exe",
+  "installerSizeBytes": 126360352,
+  "installerSha256": "863cd35c7df86f97bc5af40c61d0902d3a49bc6390a793560697f020f6270e06",
+  "timingProfile": {
+    "phaseMs": 13,
+    "oneRequestPerStep": true,
+    "repeats": false,
+    "reactionFallback": false,
+    "learningWrites": false
+  },
+  "validation": {
+    "sourceRegressionCases": 262,
+    "metricsGroups": 8,
+    "packagedBytecodeProfile": true,
+    "packagedUiAndActivation": true,
+    "installerAsarMatchesTestedPackage": true,
+    "personalProfilesExcluded": true,
+    "liveTimingUserReport": "9 own punches / 2 received in the tested isolated profile; not a guaranteed win rate",
+    "packagedFusesAndAsarIntegrity": true,
+    "updaterAcceptsPublishedCatalogAndRealSha256ManifestFrom021": true,
+    "authenticatedSdkUpdaterCheck": "Standalone QA SDK was NOT_ACTIVATED; entitlement/catalog boundary mocked only in QA. Actual Cryptlex Production publication and external files verified in panel.",
+    "runtimeUnchangedAfterPackaging": true
+  },
+  "github": {
+    "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/tag/v0.1.22",
+    "published": true,
+    "publicDownloadVerified": true
+  },
+  "cryptlex": {
+    "environment": "Production",
+    "product": "BB Hub",
+    "releaseName": "BB Hub 0.1.22",
+    "channel": "stable",
+    "platform": "windows",
+    "published": true,
+    "publishedAt": "2026-10-12 14:32:42 (panel)",
+    "externalFiles": [
+      {
+        "name": "BB-Hub-Setup-0.1.22.exe",
+        "size": 126360352,
+        "md5": "fb1eed98fb71c2ccef9048d42fc0a793",
+        "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.22/BB-Hub-Setup-0.1.22.exe"
+      },
+      {
+        "name": "SHA256.txt",
+        "size": 90,
+        "md5": "8643ada1f3cb321a353f07993455f60d",
+        "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.22/SHA256.txt"
+      }
+    ]
+  },
+  "authorization": "Owner requested installer and Cryptlex auto-update publication on 2026-10-12; preserve the tested Timing engine"
+}
