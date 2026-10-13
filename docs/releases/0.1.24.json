@@ -1,0 +1,48 @@
+{
+  "version": "0.1.24",
+  "status": "published (GitHub + Cryptlex Production)",
+  "channel": "stable",
+  "platform": "windows",
+  "runtimeBuild": "12102026_html5_selected_step_controls_preview",
+  "runtimeSha256": "8ea111b0b8f3663ad9d0ca59d7395e961c2b4d1e1b33db4529eb00d04fbbfd2c",
+  "installer": "BB-Hub-Setup-0.1.24.exe",
+  "installerSizeBytes": 126361869,
+  "installerSha256": "7dc7b5f124e0d60e6d545077c850d549519aa176fd0f1368a7073b11bd6cf745",
+  "github": {
+    "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/tag/v0.1.24",
+    "published": true,
+    "publicDownloadVerified": true
+  },
+  "cryptlex": {
+    "environment": "Production",
+    "product": "BB Hub",
+    "releaseName": "BB Hub 0.1.24",
+    "published": true,
+    "externalFiles": [
+      {
+        "name": "BB-Hub-Setup-0.1.24.exe",
+        "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.24/BB-Hub-Setup-0.1.24.exe",
+        "size": 126361869,
+        "md5": "4a632f6ef26e0525e8408c8e13625bbd"
+      },
+      {
+        "name": "SHA256.txt",
+        "size": 90,
+        "md5": "df95c4772b39155ccedf4e76622b49f3",
+        "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.24/SHA256.txt"
+      }
+    ]
+  },
+  "validation": {
+    "installerAsarMatchesPackage": true,
+    "packagedProfileAndControls": true,
+    "packagedUiAndActivation": true,
+    "fusesAndAsarIntegrity": true,
+    "personalProfilesExcluded": true,
+    "publicInstallerAndSha256Verified": true,
+    "updaterCatalogAndPublicManifest": true,
+    "updaterLicenseBoundary": "Mocked only in QA; actual Production release verified separately in UI"
+  },
+  "supersedes": "0.1.23 was published without SHA256 in Cryptlex",
+  "authorization": "Owner requested latest update and re-publication with missing SHA256 fixed"
+}
