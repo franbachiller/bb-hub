@@ -1,5 +1,12 @@
 # BB Hub — distribución Windows
 
+## 0.1.24 — Timing fichado y publicación completa
+
+Mismas mejoras del runtime probado en la rama de desarrollo: opción AUTO/SELECTED, recuperación del único primario al fin de animación, filtro de silencio corregido para jugadores de Ring y controles simples de Autoclick. El azul es un cruce visual completo, no una calibración del servidor.
+
+Reemplaza 0.1.23, publicada en Cryptlex sin SHA256. Esta release contiene los dos archivos externos verificados antes de publicar. Validación de bytecode, UI/activación empaquetadas, fuses, integridad ASAR y descarga pública con SHA256. Motor, cuentas, licencias y updater conservan su código probado. Entrega: `DISTRIBUCION/BB Hub 0.1.24 Windows x64`.
+
+
 ## 0.1.22 — Timing de un pedido y Autoclick por paso
 
 Promueve el perfil probado por el propietario (9 golpes propios y 2 recibidos):

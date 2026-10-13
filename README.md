@@ -1,19 +1,9 @@
 # BB Hub
 
-Código privado del Hub, Board y componentes auxiliares. Versión oficial:
-**0.1.22 para Windows x64**, con Timing T+13 ms fijo y Autoclick por paso.
-Licencias Basic/Pro mediante Cryptlex; el permiso
-`ring_board=true` habilita el bot.
+Código privado. Versión oficial **0.1.24 para Windows x64**.
+Licencias Basic/Pro mediante Cryptlex. Timing conserva T+13 en cruces normales, permite selección automática o solo el fichado y recupera un pedido al terminar el bloqueo. Autoclick configura Momento y Un golpe/3 intentos; conserva el último cruce visual completo sin presentarlo como aceptación del servidor.
 
-Timing conserva el perfil probado por el propietario: T+13 ms fijo, un solo
-pedido anticipado por paso y selección automática independiente del fichado.
-No ejecuta reintentos ni aprendizaje que cambie esa fase. Autoclick por paso
-usa exclusivamente la ficha nativa, corrige pasos rápidos/continuos y permite
-preparar una ventana a partir del cruce medido y la conexión estimada.
-Pasaron 270 casos/grupos locales y las comprobaciones del paquete protegido,
-la interfaz, la activación y la integridad del instalador. La sesión del
-propietario tuvo nueve golpes propios y dos recibidos; no es una garantía de
-eficacia. Ver `controller-electron/RELEASE.md` y `docs/releases/0.1.22.json`.
+0.1.24 reemplaza la publicación incompleta de 0.1.23: instalador y SHA256 disponibles en GitHub y Cryptlex stable/windows. Ver `controller-electron/RELEASE.md` y `docs/releases/0.1.24.json`.
 
 Desde 0.1.3 el Hub abre el juego por su cuenta: inicia sesión con la cuenta de
 BoomBang guardada (cifrada con DPAPI), abre `BoomBangHTML5.exe` con CDP, inyecta
