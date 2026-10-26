@@ -1,5 +1,16 @@
 # BB Hub — distribución Windows
 
+## 0.1.25 — Timing del 26/10, T+ y clicks a mano
+
+Timing queda como se probó el 26/10 (dos rondas ganadas seguidas con T+8 manual):
+
+- Elección del objetivo: el piso de amenaza cubre a todo rival a un paso de una casilla de contacto. Antes dejaba afuera (2,0)/(0,2) y los ortogonales (58 % de las entradas al contacto en el Ring) y el tiro a ciegas iba a otro rival.
+- Sección **Disparo** en Timing: llegada del golpe a mano de T+0 a T+100 (T+8 por defecto; ya no hay Auto, que derivaba a T+15) y clicks por disparo de 1 a 100 (1 por defecto).
+- Valores de fábrica = la configuración ganadora: 1 click, segundo click +105, barrido y reacción. Los ajustes de 0.1.24 o anteriores pasan una sola vez a estos valores.
+- Se quitan Ultimate Pelx, Modo Grilla y Emotes al azar (Hub y runtime).
+
+Runtime `26102026_html5_release_0125`. Validación: qa de Timing (26 archivos, incluye `timing-step-floor-regression` y `timing-shot-config-regression`), avatar con Electron. `HTML5/harness/test_hub_runtime.js` sigue cortando en el caso previo de la grilla con paseos de mascota (l.357), igual que antes del cambio. Entrega: `DISTRIBUCION/BB Hub 0.1.25 Windows x64`.
+
 ## 0.1.24 — Timing fichado y publicación completa
 
 Mismas mejoras del runtime probado en la rama de desarrollo: opción AUTO/SELECTED, recuperación del único primario al fin de animación, filtro de silencio corregido para jugadores de Ring y controles simples de Autoclick. El azul es un cruce visual completo, no una calibración del servidor.
