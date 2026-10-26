@@ -1,6 +1,6 @@
 {
   "version": "0.1.25",
-  "status": "prepared (not published)",
+  "status": "published (GitHub + Cryptlex Production)",
   "channel": "stable",
   "platform": "windows",
   "runtimeBuild": "26102026_html5_release_0125",
@@ -10,7 +10,11 @@
   "installerSizeBytes": 126360261,
   "installerSha256": "660f8895fa560f11c33ca921b67101361e88447b5de4a6fa55250d04e635e001",
   "installerMd5": "b1cd86931345dc93798ea61f51ce46d5",
-  "sha256File": { "name": "SHA256.txt", "size": 90, "md5": "1c419fed424419ca91c3b7ae1d6debaa" },
+  "sha256File": {
+    "name": "SHA256.txt",
+    "size": 90,
+    "md5": "1c419fed424419ca91c3b7ae1d6debaa"
+  },
   "changes": [
     "Threat floor covers every tile one king move from a contact tile (blind tick shot no longer goes to a rival that cannot step in)",
     "Disparo: T+ manual 0-100 (T+8 default, no learned Auto) and clicks per shot 1-100 (1 default); 0.1.24 settings migrate once",
@@ -24,5 +28,36 @@
     "packagedLicenseTier": "not run: the activation stored on the build PC reports EXPIRED",
     "html5Harness": "stops at the pre-existing pet-walk grid case (l.357), same as before the change",
     "asarContents": "version 0.1.25, runtime 26102026_html5_release_0125, no Pelx/grid/emotes in runtime, UI or bytecode"
-  }
+  },
+  "github": {
+    "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/tag/v0.1.25",
+    "published": true,
+    "publicDownloadVerified": true
+  },
+  "cryptlex": {
+    "environment": "Production",
+    "product": "BB Hub",
+    "releaseName": "BB Hub 0.1.25",
+    "channel": "stable",
+    "platforms": [
+      "windows"
+    ],
+    "published": true,
+    "publishedAt": "2026-10-26T17:17:29 (Cryptlex UI, hora local)",
+    "externalFiles": [
+      {
+        "name": "BB-Hub-Setup-0.1.25.exe",
+        "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.25/BB-Hub-Setup-0.1.25.exe",
+        "size": 126360261,
+        "md5": "b1cd86931345dc93798ea61f51ce46d5"
+      },
+      {
+        "name": "SHA256.txt",
+        "url": "https://github.com/bachillerfran-afk/bb-hub-releases/releases/download/v0.1.25/SHA256.txt",
+        "size": 90,
+        "md5": "1c419fed424419ca91c3b7ae1d6debaa"
+      }
+    ]
+  },
+  "authorization": "Owner requested publishing 0.1.25 to GitHub and Cryptlex Production (26/10)"
 }
