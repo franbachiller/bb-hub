@@ -17,7 +17,7 @@ const RING_BOARD_CLIENT_ID = "bbhub-main";
 // Ring mGame2 static layout hash (fnv1a of the HTML5 runtime scene). 23/09 update:
 // 117 tiles; the 84-tile Ring before it was "681d57fe" (both are allowed).
 const RING_BOARD_SCENE_HASH = "794bf3d1";
-const CONTROLLER_BUILD = "bb_hub_electron_01102026_coco_self";
+const CONTROLLER_BUILD = "bb_hub_electron_26102026_release_0125";
 const TIMING_WINDOW_MAX = 750;
 const TIMING_START_MAX = TIMING_WINDOW_MAX - 1;
 const TIMING_RATE_MAX = 200;
@@ -237,14 +237,20 @@ const MOVE_BRAIN_NAMES = ["planner", "tile", "tile2", "tile3"];
 
 // Whitelist (29/09): names or account ids the bot never punches (the ally account,
 // friends). Stored as typed; the runtime matches names case-insensitively.
-// Advanced Timing knobs (29/09). Factory values = what measured best (5-request
-// burst, sweep on, reaction on, no repeat click).
-const ADVANCED_DEFAULTS = Object.freeze({ burst: 5, repeatMs: 0, sweep: true, reactive: true });
+// Advanced Timing knobs (29/09). Factory values = the Timing that won on 26/10
+// (0.1.25): one click per shot, second click +105, sweep and reaction on.
+const ADVANCED_DEFAULTS = Object.freeze({ burst: 1, repeatMs: 105, sweep: true, reactive: true });
+const BURST_MAX = 100;
+// T+ of the tick click, always manual (0.1.25): the learned Auto drifted to T+15.
+const TICK_AIM_DEFAULT = 8;
+const TICK_AIM_MAX = 100;
+// Settings saved before this revision get the 0.1.25 Timing defaults once.
+const TIMING_DEFAULTS_REV = "0.1.25";
 function normalizeAdvanced(value) {
   const v = value && typeof value === "object" ? value : {};
   const repeat = Number(v.repeatMs);
   return {
-    burst: clamp(safeInt(v.burst, ADVANCED_DEFAULTS.burst), 1, 20),
+    burst: clamp(safeInt(v.burst, ADVANCED_DEFAULTS.burst), 1, BURST_MAX),
     repeatMs: Number.isFinite(repeat) && repeat > 0 ? clamp(Math.round(repeat), 100, 400) : 0,
     sweep: v.sweep == null ? ADVANCED_DEFAULTS.sweep : Boolean(v.sweep),
     reactive: v.reactive == null ? ADVANCED_DEFAULTS.reactive : Boolean(v.reactive)
@@ -348,9 +354,8 @@ function normalizeAllies(value) {
 }
 
 function normalizeTickAim(value) {
-  if (value == null || value === "auto" || value === "") return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? clamp(Math.round(n), 0, 120) : null;
+  const n = value == null || value === "" ? NaN : Number(value);
+  return Number.isFinite(n) ? clamp(Math.round(n), 0, TICK_AIM_MAX) : TICK_AIM_DEFAULT;
 }
 
 function normalizeTimingTargetMode(value, fallback = "AUTO") {
@@ -549,7 +554,8 @@ class ControllerCore extends EventEmitter {
     const saved = this.loadSettings();
     try { this.timingHotkey = normalizeHotkey(saved.timingHotkey ?? "F2"); }
     catch { this.timingHotkey = "F2"; }
-    this.tickAim = normalizeTickAim(saved.tickAim);
+    this.timingDefaultsRev = TIMING_DEFAULTS_REV;
+    this.tickAim = saved.timingDefaultsRev === TIMING_DEFAULTS_REV ? normalizeTickAim(saved.tickAim) : TICK_AIM_DEFAULT;
     this.timingTargetMode = normalizeTimingTargetMode(saved.timing?.targetMode);
     // Movement brain chosen on the Board (0 planner, 1 tile, 2 tile2): the ring-board
     // starts on the planner, so it is sent again whenever its status says otherwise.
@@ -622,14 +628,12 @@ class ControllerCore extends EventEmitter {
     this.loadAllyPortraits();
     // Auto mode (29/09): the bot plays on its own and rejoins the Ring after each loss.
     this.autoRun = saved.autoRun === true && this.boardLicensed();
-    // Random emotes (29/09): a laugh, a spit... now and then, never with a rival close in the Ring.
-    this.emotes = saved.emotes !== false;
     // Self coco (01/10): "auto" throws our own coco when the unlock ambush can no
     // longer be covered by the guard; "off" never does. Default auto.
     this.cocoSelfMode = saved.cocoSelfMode === "off" ? "off" : "auto";
     // Hotkey for it (01/10): KeyboardEvent.code pressed in the game window ("" = off).
     this.cocoSelfKey = typeof saved.cocoSelfKey === "string" ? saved.cocoSelfKey.slice(0, 32) : "";
-    this.advanced = normalizeAdvanced(saved.advanced);
+    this.advanced = saved.timingDefaultsRev === TIMING_DEFAULTS_REV ? normalizeAdvanced(saved.advanced) : { ...ADVANCED_DEFAULTS };
     // Re-queue key (29/09): KeyboardEvent.code pressed in the game window ("" = off).
     this.requeueKey = typeof saved.requeueKey === "string" ? saved.requeueKey.slice(0, 32) : "";
     // EXPERIMENTAL "disparo libre" (02/10): el tick ignora el espaciado interno de
@@ -678,7 +682,6 @@ class ControllerCore extends EventEmitter {
     this.setRingBoardArmed(false);
     for (const config of [
       { type: "auto_ring_config", enabled: false },
-      { type: "emote_config", enabled: false },
       { type: "coco_guard_config", selfMode: "off" },
       { type: "coco_self_key_config", code: "" },
       { type: "requeue_hotkey_config", code: "" },
@@ -709,7 +712,6 @@ class ControllerCore extends EventEmitter {
         stepWalk: this.stepWalk !== false,
         allies: this.allies,
         autoRun: this.autoRun === true,
-        emotes: this.emotes !== false,
         cocoSelfMode: this.cocoSelfMode === "off" ? "off" : "auto",
         cocoSelfKey: this.cocoSelfKey || "",
         advanced: this.advanced,
@@ -721,7 +723,8 @@ class ControllerCore extends EventEmitter {
         dropHunter: { autoClaim: this.dropHunter.autoClaim },
         exit: { enabled: this.exitMode.enabled, punch: this.exitMode.punch },
         punchPackets: clamp(safeInt(this.desiredPunchPackets || this.punchPackets, 1), 1, PUNCH_PACKETS_MAX),
-        tickAim: this.tickAim ?? null,
+        tickAim: this.tickAim,
+        timingDefaultsRev: this.timingDefaultsRev,
         moveBrain: this.moveBrain
       };
       fs.mkdirSync(path.dirname(this.settingsPath), { recursive: true });
@@ -859,7 +862,6 @@ class ControllerCore extends EventEmitter {
     setTimeout(() => this.sendToSwf({ type: "step_walk_config", enabled: this.stepWalk !== false }), 180);
     setTimeout(() => this.pushAllies(), 190);
     setTimeout(() => this.pushAutoRun(), 200);
-    setTimeout(() => this.pushEmotes(), 210);
     setTimeout(() => this.pushCocoSelf(), 215);
     setTimeout(() => this.pushCocoSelfKey(), 216);
     setTimeout(() => this.pushAdvanced(), 220);
@@ -960,7 +962,6 @@ class ControllerCore extends EventEmitter {
       this.log(`Runtime ${this.bridgeBuild} | selfId=${this.selfId}`);
       this.pushAllies();
       this.pushAutoRun();
-      this.pushEmotes();
       this.pushCocoSelf();
       this.pushCocoSelfKey();
       this.pushAdvanced();
@@ -1248,7 +1249,7 @@ class ControllerCore extends EventEmitter {
       enabled: Boolean(enabled),
       targetMode: this.timingTargetMode,
       landing: { ...defaultTiming().landing, enabled: false },
-      tick: { enabled: true, auto: this.tickAim == null, single: true, blind: true, reactive: this.advanced?.reactive !== false, autoCal: true, offsetMs: this.tickAim ?? 10, shots: 1, spacingMs: 110, burst: 1, burstGapMs: 4 }
+      tick: { enabled: true, auto: false, single: true, blind: true, reactive: this.advanced?.reactive !== false, autoCal: true, offsetMs: this.tickAim, shots: 1, spacingMs: 110, burst: 1, burstGapMs: 4 }
     });
   }
 
@@ -1601,19 +1602,6 @@ class ControllerCore extends EventEmitter {
     return true;
   }
 
-  pushEmotes() {
-    this.sendToSwf({ type: "emote_config", enabled: this.emotes !== false, minMs: 25000, maxMs: 70000 });
-  }
-
-  setEmotes(value) {
-    this.emotes = Boolean(value);
-    this.persistSettings();
-    this.pushEmotes();
-    this.log(`Emotes al azar -> ${this.emotes ? "ON" : "OFF"}`);
-    this.emitSnapshot();
-    return true;
-  }
-
   pushCocoSelf() {
     this.sendToSwf({ type: "coco_guard_config", selfMode: this.cocoSelfMode === "off" ? "off" : "auto" });
   }
@@ -1698,7 +1686,7 @@ class ControllerCore extends EventEmitter {
     // manual T+N clicked once came back on every start (auto: false, no learning)
     // even after choosing Auto again.
     this.persistSettings();
-    this.log(this.tickAim == null ? "TICK llegada -> AUTO" : `TICK llegada -> MANUAL T+${this.tickAim} ms`);
+    this.log(`TICK llegada -> T+${this.tickAim} ms`);
     return this.applyTiming({ enabled: Boolean(this.timing?.enabled) });
   }
 
@@ -1728,7 +1716,8 @@ class ControllerCore extends EventEmitter {
   }
 
   toggleHotkeyMode(mode) {
-    if (String(mode || "").toUpperCase() === "TIMING") {
+    const which = String(mode || "").toUpperCase();
+    if (which === "TIMING") {
       this.applyTiming({ ...this.timing, enabled: !this.timing.enabled });
     }
   }
@@ -2299,14 +2288,14 @@ class ControllerCore extends EventEmitter {
       timing: this.timing,
       timingHotkey: this.timingHotkey,
       tick: this.tick,
-      tickAim: this.tickAim ?? null,
+      tickAim: this.tickAim,
+      punchIsolationPhase: this.punchIsolationPhase ?? null,
       exit: this.exit,
       exitMode: this.exitMode,
       stepWalk: this.stepWalk !== false,
       allies: this.allies,
       portraitVersion: this.portraitVersion,
       autoRun: this.autoRun === true,
-      emotes: this.emotes !== false,
       cocoSelfMode: this.cocoSelfMode === "off" ? "off" : "auto",
       cocoSelfKey: this.cocoSelfKey || "",
       advanced: this.advanced,

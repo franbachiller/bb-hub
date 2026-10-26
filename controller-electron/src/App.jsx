@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import logoUrl from "../electron/assets/icon.png";
-import { AlertTriangle, ArrowUpRight, ArrowRight, Check, Crosshair, Gauge, Grid2X2, ListFilter, MousePointer2, RotateCcw, ScrollText, ShieldCheck, Smile, Square, Target, Trash2, UserPlus, Users, X, Zap } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, ArrowRight, Check, Crosshair, Gauge, Grid2X2, ListFilter, RotateCcw, ScrollText, ShieldCheck, Smile, Square, Target, Trash2, UserPlus, Users, X, Zap } from "lucide-react";
 import { createDemoApi } from "./demo.js";
 import { selectStepCrossing, stepCrossingPhase, stepClickDraft, stepClickPhases, validStepClickDraft } from "./step-click-metrics.js";
 
@@ -56,7 +56,7 @@ const fallbackSnapshot = {
       blind: true,
       reactive: true,
       autoCal: true,
-      burst: 5,
+      burst: 1,
       burstGapMs: 4
     }
   },
@@ -117,7 +117,6 @@ const stubApi = {
   removeAlly: async () => {},
   getPortraits: async () => ({}),
   setAutoRun: async () => {},
-  setEmotes: async () => {},
   setAdvanced: async () => {},
   setRequeueKey: async () => {},
   requeueNow: async () => {},
@@ -151,7 +150,6 @@ const navItems = [
   { id: "players", label: "Jugadores", icon: Users },
   { id: "allies", label: "Aliados", icon: ShieldCheck },
   { id: "simon", label: "Simon Dice", icon: Smile },
-  { id: "stepClick", label: "Autoclick por paso", icon: MousePointer2 },
   { id: "logs", label: "Registro", icon: ScrollText }
 ];
 
@@ -162,10 +160,19 @@ function dropHunterFromSnapshot(snapshot) {
 function signedMs(value) {
   return value == null || !Number.isFinite(Number(value)) ? "—" : `T${Number(value) >= 0 ? "+" : ""}${Number(value)} ms`;
 }
+// Fixed phase only exists in the isolated diagnostic launcher (BB_TIMING_PUNCH_ISOLATION=1).
 function timingFixedPhase(snapshot) {
-  if (!snapshot.connected || !snapshot.tick) return 13;
-  const phase = snapshot.tick.fixedPhaseMs;
-  return phase === null ? null : phase != null && Number.isFinite(Number(phase)) ? Number(phase) : 13;
+  const phase = snapshot.punchIsolationPhase;
+  return phase != null && Number.isFinite(Number(phase)) ? Number(phase) : null;
+}
+const TICK_AIM_DEFAULT = 8;
+const TICK_AIM_MAX = 100;
+const BURST_DEFAULT = 1;
+const BURST_MAX = 100;
+const ADVANCED_FACTORY = { repeatMs: 105, sweep: true, reactive: true };
+function tickAimOf(snapshot) {
+  const aim = Number(snapshot.tickAim);
+  return Number.isFinite(aim) ? aim : TICK_AIM_DEFAULT;
 }
 function hunterState(value) {
   return ({ IDLE: "En espera", SEARCHING: "Buscando", MOVING: "En camino", CLAIMING: "Reclamando", RETURNING: "Volviendo", WAITING: "Esperando" })[value] || value || "En espera";
@@ -261,7 +268,7 @@ function App() {
             <div className="stat stat-coco"><dt>Coco</dt><dd className={cocoActive ? "num is-warn" : "num"}>{cocoActive ? `${(snapshot.exit.cocoRemainingMs / 1000).toFixed(1)} s` : "Libre"}</dd></div>
           </dl>
           <div className="strip-actions">
-            <button className={`target ${targetPresent ? "has-target" : ""}`} onClick={() => setActiveTab(snapshot.stepClick?.enabled ? "stepClick" : "players")} title={snapshot.stepClick?.enabled ? "Ficha actual de Autoclick por paso" : timingSelectedMode ? "Ficha actual de Timing" : "Último disparo de Timing"}>
+            <button className={`target ${targetPresent ? "has-target" : ""}`} onClick={() => setActiveTab("players")} title={snapshot.stepClick?.enabled ? "Ficha actual de Autoclick por paso" : timingSelectedMode ? "Ficha actual de Timing" : "Último disparo de Timing"}>
               <Target aria-hidden="true" size={15} strokeWidth={1.8} />
               <span className="target-name">{snapshot.stepClick?.enabled ? snapshot.stepClick.status?.targetName || "Sin ficha" : timingTargetName}</span>
             </button>
@@ -278,7 +285,6 @@ function App() {
           {activeTab === "players" && <PlayersView {...context} />}
           {activeTab === "allies" && <AlliesView {...context} />}
           {activeTab === "simon" && <SimonView {...context} />}
-          {activeTab === "stepClick" && <StepClickView {...context} />}
           {activeTab === "logs" && <LogsView logs={snapshot.logs || []} runAction={runAction} />}
         </main>
       </div>
@@ -310,7 +316,7 @@ function DashboardView({ snapshot, selfPlayer, players, selectedPlayer, automati
     <div className="split">
       <section className="section" aria-labelledby="session-title">
         <h2 id="session-title" className="section-title">Sesión <span className="section-meta">{snapshot.connected ? "en vivo" : "en espera"}</span></h2>
-        <div className="lead-figure lead-figure-inline"><span>{fixedPhase != null ? "Fase principal" : "Llegada estimada"}</span><b className="num">{fixedPhase != null ? signedMs(fixedPhase) : auto ? signedMs(auto.aimMs) : "—"}</b></div>
+        <div className="lead-figure lead-figure-inline"><span>{fixedPhase != null ? "Fase principal" : "Llegada del golpe"}</span><b className="num">{signedMs(fixedPhase != null ? fixedPhase : tickAimOf(snapshot))}</b></div>
         <dl className="readout"><div><dt>{timingSelectedMode ? "Ficha actual de Timing" : "Último disparo de Timing"}</dt><dd className={automaticPlayer ? "is-accent" : ""}>{timingTargetName}</dd></div><div><dt>Frontera del server</dt><dd className="mono">{auto ? `${signedMs(auto.boundaryMs)} · ${auto.samples} muestras` : "—"}</dd></div><div><dt>Variación</dt><dd className="mono">{auto?.sigmaMs == null ? "—" : `${auto.sigmaMs} ms`}</dd></div></dl>
       </section>
       <section className="section" aria-labelledby="room-title">
@@ -435,11 +441,10 @@ function TimingView({ snapshot, applyTiming, runAction, setActiveTab }) {
             </Setting>
             <TimingHotkeyRow snapshot={snapshot} runAction={runAction} />
             <Setting title="Modo automático" text="Se mueve, golpea, sale al perder y se vuelve a inscribir al Ring (paga la entrada)."><Toggle label="Modo automático" disabled={!snapshot.ringBoard?.licensed} checked={snapshot.autoRun === true} onChange={(checked) => runAction(() => api.setAutoRun(checked))} /></Setting>
-            <Setting title="Emotes al azar" text="Cada 25 a 70 s tira una risa, un escupitajo, un pedo o un llanto. En el Ring, solo si no hay nadie a 4 casillas."><Toggle label="Emotes al azar" checked={snapshot.emotes !== false} onChange={(checked) => runAction(() => api.setEmotes(checked))} /></Setting>
             <CocoSelfRow snapshot={snapshot} runAction={runAction} />
-            <TickAimRow snapshot={snapshot} runAction={runAction} />
           </div>
         </section>
+        <ShotSection snapshot={snapshot} runAction={runAction} />
         <section className="section" aria-labelledby="requeue-title">
           <h2 id="requeue-title" className="section-title">Reinscripción</h2>
           <div className="spec"><RequeueKeyRow snapshot={snapshot} runAction={runAction} /></div>
@@ -462,7 +467,7 @@ function TimingView({ snapshot, applyTiming, runAction, setActiveTab }) {
         <section className="panel"><h2 className="section-title">Actualizaciones</h2><p className="note">Versión {snapshot.updates?.version || "0.1.3"}. Se comprueban automáticamente al abrir el Hub.</p><p className="note" role="status">{snapshot.updates?.message}</p><button className="btn" disabled={["checking", "downloading", "installing"].includes(snapshot.updates?.status)} onClick={() => runAction(() => api.checkUpdates())}>Buscar actualizaciones</button></section>
         <section className="panel">
           <h2 className="section-title">Lectura de sesión <span className="section-meta">{on ? "activo" : "en pausa"}</span></h2>
-          <div className="lead-figure"><span>{fixedPhase != null ? "Fase principal" : "Llegada estimada"}</span><b className="num">{fixedPhase != null ? signedMs(fixedPhase) : auto ? signedMs(auto.aimMs) : "—"}</b></div>
+          <div className="lead-figure"><span>{fixedPhase != null ? "Fase principal" : "Llegada del golpe"}</span><b className="num">{signedMs(fixedPhase != null ? fixedPhase : tickAimOf(snapshot))}</b></div>
           <dl className="figures figures-2">
             <Metric label="Carreras ganadas" value={auto?.recentWinRate == null ? "—" : `${auto.recentWinRate} %`} />
             <Metric label="Golpes / recibidos" value={`${combat.hits ?? 0} / ${combat.gotHit ?? 0}`} />
@@ -488,20 +493,17 @@ function TimingView({ snapshot, applyTiming, runAction, setActiveTab }) {
 
 // Advanced Timing (29/09): the knobs the server respects. Factory = measured best.
 function AdvancedTiming({ snapshot, runAction }) {
-  const a = snapshot.advanced || { burst: 5, repeatMs: 0, sweep: true, reactive: true };
+  const a = snapshot.advanced || { burst: BURST_DEFAULT, ...ADVANCED_FACTORY };
   const set = (patch) => runAction(() => api.setAdvanced(patch));
-  const factory = a.burst === 5 && !a.repeatMs && a.sweep && a.reactive;
+  const factory = a.repeatMs === ADVANCED_FACTORY.repeatMs && a.sweep === ADVANCED_FACTORY.sweep && a.reactive === ADVANCED_FACTORY.reactive;
   return <details className="section advanced" open={!factory}><summary className="section-title"><span>Avanzado</span>{factory ? <span className="section-meta">de fábrica</span> : <span className="flag flag-warn">Modificado</span>}<span className="chev" aria-hidden="true" /></summary>
     <div className="spec">
-      <Setting title="Clicks por disparo" text="Pedidos seguidos, 1 ms entre sí. El server procesa el primero y descarta el resto por 100 ms." stack>
-        <div className="segmented" role="group" aria-label="Clicks por disparo">{[1, 2, 3, 5, 8].map((v) => <button key={v} className={`seg ${a.burst === v ? "is-on" : ""}`} aria-pressed={a.burst === v} onClick={() => set({ burst: v })}>{v}</button>)}</div>
-      </Setting>
       <Setting title="Segundo click al mismo rival" text="Otro click al mismo objetivo, N ms después del primero (desde 100: antes el server lo descarta). Reemplaza al barrido." stack>
         <div className="segmented" role="group" aria-label="Segundo click al mismo rival">{[0, 105, 110, 115, 120, 140].map((v) => <button key={v} className={`seg ${a.repeatMs === v ? "is-on" : ""}`} aria-pressed={a.repeatMs === v} onClick={() => set({ repeatMs: v })}>{v ? `+${v}` : "No"}</button>)}</div>
       </Setting>
       <Setting title="Barrido" text="Si el primer click fue a otro, un segundo click al otro candidato (~T+122)."><Toggle label="Barrido" checked={a.sweep !== false} onChange={(checked) => set({ sweep: checked })} /></Setting>
       <Setting title="Reacción" text="Click apenas se ve un contacto nuevo (llega ~T+175 por el ping)."><Toggle label="Reacción" checked={a.reactive !== false} onChange={(checked) => set({ reactive: checked })} /></Setting>
-      <div className="spec-row spec-foot"><p className={factory ? "note" : "note is-warn"}>{factory ? "Valores de fábrica (lo que mejor midió)." : "Hay valores cambiados."}</p><button className="btn" onClick={() => runAction(() => api.setAdvanced("defaults"))}><RotateCcw aria-hidden="true" size={14} />Valores de fábrica</button></div>
+      <div className="spec-row spec-foot"><p className={factory ? "note" : "note is-warn"}>{factory ? "Valores de fábrica (lo que mejor midió)." : "Hay valores cambiados."}</p><button className="btn" onClick={() => set(ADVANCED_FACTORY)}><RotateCcw aria-hidden="true" size={14} />Valores de fábrica</button></div>
     </div>
   </details>;
 }
@@ -786,29 +788,57 @@ function AlliesView({ snapshot, players, portraits, runAction }) {
   </>;
 }
 
-// Arrival of the tick click: Auto (learned) or a fixed T + N ms to compare settings.
-function TickAimRow({ snapshot, runAction }) {
+// Disparo (0.1.25): when the tick click lands (T+0..100, T+8 by default) and how
+// many requests each shot sends (1..100, 1 by default). Both are manual.
+function ShotSection({ snapshot, runAction }) {
   const fixedPhase = timingFixedPhase(snapshot);
-  const aim = snapshot.tickAim ?? null;
-  const auto = snapshot.tick?.auto;
-  const base = aim ?? auto?.aimMs ?? 10;
-  const setAim = (value) => runAction(() => api.setTickAim(value));
-  const boundary = auto?.boundaryMs;
-  const below = aim != null && boundary != null && aim < boundary;
-  if (fixedPhase != null) return <Setting title="Fase principal" text={<>En cruces normales, un pedido por paso con fase fija {signedMs(fixedPhase)}. Puede recuperar el pedido al terminar una animación de golpe o coco.{!snapshot.connected ? " Pendiente de conectar el juego." : ""}</>}><b className="mono">{signedMs(fixedPhase)}</b></Setting>;
-  return <Setting title="Llegada del pedido" text={<>{aim == null ? `Perfil del motor${auto?.aimMs != null ? `: ${signedMs(auto.aimMs)}` : ""}.` : `Cada pedido apunta a ${signedMs(aim)}.`} Un pedido por paso en el perfil actual.{below ? <span className="is-warn">{` Está antes de la frontera medida (${signedMs(boundary)}).`}</span> : ""}</>} stack>
-    <div className="controls">
-      <div className="segmented" role="group" aria-label="Llegada del click">
-        <button className={`seg ${aim == null ? "is-on" : ""}`} aria-pressed={aim == null} onClick={() => setAim(null)}>Perfil</button>
-        {[0, 5, 8, 10, 12, 15, 20].map((v) => <button key={v} className={`seg ${aim === v ? "is-on" : ""}`} aria-pressed={aim === v} onClick={() => setAim(v)}>{v}</button>)}
-      </div>
-      <div className={`stepper ${below ? "is-warn" : ""}`}>
-        <button className="stepper-btn" aria-label="Restar 1 ms" onClick={() => setAim(Math.max(0, base - 1))}>−</button>
-        <b className="stepper-value mono">{aim == null ? "Perfil" : signedMs(aim)}</b>
-        <button className="stepper-btn" aria-label="Sumar 1 ms" onClick={() => setAim(Math.min(120, base + 1))}>+</button>
-      </div>
+  const aim = tickAimOf(snapshot);
+  const burst = Number(snapshot.advanced?.burst) || BURST_DEFAULT;
+  const aimTone = aim < 5 || aim > 20 ? "warn" : "";
+  const burstTone = burst > 20 ? "warn" : "";
+  return <section className="section" aria-labelledby="shot-title">
+    <h2 id="shot-title" className="section-title">Disparo</h2>
+    {fixedPhase != null ? <div className="spec"><Setting title="Fase principal" text={<>Perfil de diagnóstico: un pedido por paso con fase fija {signedMs(fixedPhase)}.</>}><b className="mono">{signedMs(fixedPhase)}</b></Setting></div>
+      : <div className="dial-grid">
+        <Dial label="Llegada del golpe" prefix="T+" unit="ms" value={aim} min={0} max={TICK_AIM_MAX} defaultValue={TICK_AIM_DEFAULT} presets={[0, 5, 8, 10, 15, 20]} tone={aimTone} onCommit={(value) => runAction(() => api.setTickAim(value))} />
+        <Dial label="Clicks por disparo" unit={burst === 1 ? "click" : "clicks"} value={burst} min={1} max={BURST_MAX} defaultValue={BURST_DEFAULT} presets={[1, 2, 3, 5, 10]} tone={burstTone} onCommit={(value) => runAction(() => api.setAdvanced({ burst: value }))} />
+      </div>}
+  </section>;
+}
+
+// A number the user sets by hand: slider, field, -/+ and quick values. Commits on release.
+function Dial({ label, prefix = "", unit, value, min, max, defaultValue, presets, tone, onCommit }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  const fit = (n) => Math.min(max, Math.max(min, Math.round(n)));
+  const shown = draft !== "" && Number.isFinite(Number(draft)) ? fit(Number(draft)) : value;
+  const commit = (raw) => {
+    const n = Number(raw);
+    if (raw === "" || !Number.isFinite(n)) { setDraft(String(value)); return; }
+    const next = fit(n);
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  };
+  const fill = `${((shown - min) / (max - min)) * 100}%`;
+  return <div className={`dial ${tone === "warn" ? "is-warn" : ""}`}>
+    <div className="dial-head">
+      <span className="dial-label">{label}</span>
+      {value !== defaultValue && <button type="button" className="dial-reset" onClick={() => commit(defaultValue)}><RotateCcw aria-hidden="true" size={12} />{prefix}{defaultValue}</button>}
     </div>
-  </Setting>;
+    <p className="dial-value num"><span className="dial-prefix">{prefix}</span>{shown}<span className="dial-unit">{unit}</span></p>
+    <input className="dial-range" type="range" min={min} max={max} step={1} value={shown} style={{ "--fill": fill }} aria-label={label}
+      onChange={(event) => setDraft(event.target.value)} onPointerUp={(event) => commit(event.currentTarget.value)} onKeyUp={(event) => commit(event.currentTarget.value)} onBlur={(event) => commit(event.currentTarget.value)} />
+    <div className="dial-scale mono" aria-hidden="true"><span>{prefix}{min}</span><span>{prefix}{max}</span></div>
+    <div className="dial-row">
+      <div className="stepper">
+        <button type="button" className="stepper-btn" aria-label={`Restar 1 a ${label}`} disabled={value <= min} onClick={() => commit(value - 1)}>−</button>
+        <input className="dial-number mono" type="number" inputMode="numeric" min={min} max={max} value={draft} aria-label={`${label} (número)`}
+          onChange={(event) => setDraft(event.target.value)} onBlur={(event) => commit(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") commit(event.currentTarget.value); }} />
+        <button type="button" className="stepper-btn" aria-label={`Sumar 1 a ${label}`} disabled={value >= max} onClick={() => commit(value + 1)}>+</button>
+      </div>
+      <div className="segmented" role="group" aria-label={`${label}: valores rápidos`}>{presets.map((v) => <button type="button" key={v} className={`seg ${value === v ? "is-on" : ""}`} aria-pressed={value === v} onClick={() => commit(v)}>{prefix}{v}</button>)}</div>
+    </div>
+  </div>;
 }
 
 function BoardView({ snapshot, runAction }) {

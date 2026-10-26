@@ -22,7 +22,6 @@ contextBridge.exposeInMainWorld("ringController", {
   removeAlly: (value) => ipcRenderer.invoke("controller:removeAlly", value),
   getPortraits: () => ipcRenderer.invoke("controller:getPortraits"),
   setAutoRun: (value) => ipcRenderer.invoke("controller:setAutoRun", value),
-  setEmotes: (value) => ipcRenderer.invoke("controller:setEmotes", value),
   setCocoSelf: (mode) => ipcRenderer.invoke("controller:setCocoSelf", mode),
   setCocoSelfKey: (code) => ipcRenderer.invoke("controller:setCocoSelfKey", code),
   cocoSelfNow: () => ipcRenderer.invoke("controller:cocoSelfNow"),

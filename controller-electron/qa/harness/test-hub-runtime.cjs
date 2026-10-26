@@ -1649,31 +1649,10 @@ const api = context.__BBFlashRuntime;
   run(`fixture.Renderer.instance.spaceModel.name = ${JSON.stringify(savedSpaceName)}`);
   console.log("PASS auto Ring: joins from the lobby when not queued; hit -> leaves the room -> Ring lobby");
 
-  // Random emotes: one of risa1/risa2/pedo/escupir/llorar every minMs..maxMs; in the
-  // Ring never with a free rival within 4 tiles (retries 3 s later).
-  const emotes = () => JSON.parse(run("JSON.stringify(fixture.Action.instance.calls)"));
-  run("fixture.Renderer.instance.spaceModel.name = 'escenario404'");
-  api.onHubMessage({ type: "emote_config", enabled: true, minMs: 10000, maxMs: 10000 });
-  sendTickFn(); // schedules the first one 10 s ahead
-  context.time += 5000; sendTickFn();
-  assert.equal(emotes().length, 0, "not before its time");
-  context.time += 6000; sendTickFn();
-  assert.equal(emotes().length, 1, "one emote");
-  assert.ok([1, 2, 3, 4, 7].includes(emotes()[0]), "a known emote id");
-  context.time += 11000; sendTickFn();
-  assert.equal(emotes().length, 2, "and another one later");
+  // (0.1.25: random emotes removed.) The next tests expect us back in play in the Ring.
   run("fixture.Renderer.instance.spaceModel.name = 'mGame2'");
-  inbound(128, 120, []); // new room: we are in play again (the auto Ring test left us out)
-  run("fixture.Renderer.instance.avatars.set(77, { position: { x: 12, y: 11, z: 1 }, avatarInfo: { id: 7700, username: 'Close' } })");
-  inbound(182, 0, [1, 77, 12, 11, 2, 600, 0]);
-  context.time += 11000; sendTickFn();
-  assert.equal(emotes().length, 2, "a rival 2 tiles away in the Ring: no emote");
-  assert.ok(api.status().emotes.skipped >= 1);
-  run("fixture.Renderer.instance.avatars.delete(77)");
-  api.onHubMessage({ type: "emote_config", enabled: false });
-  context.time += 30000; sendTickFn();
-  assert.equal(emotes().length, 2, "off");
-  console.log("PASS emotes: at random intervals, a known id, never with a rival close in the Ring");
+  inbound(128, 120, []);
+  context.time += 63000; sendTickFn();
 
   // Re-queue key (29/09): in the Ring -> leave now (128/124); outside -> Ring lobby
   // (128/120); in the lobby -> status + join; queued -> done. Ignored while typing.

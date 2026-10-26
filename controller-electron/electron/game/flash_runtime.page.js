@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "12102026_html5_selected_step_controls_preview";
+  const BRIDGE_BUILD = "26102026_html5_release_0125";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -362,8 +362,6 @@
       // 29/09 re-queue key (requeue_hotkey_config): KeyboardEvent.code, "" = off.
       // oneShotUntil: the cycle runs once, without its waits, until we are queued.
       hotkey: "", oneShotUntil: 0, requeues: 0 },
-    // 29/09 random emotes (emote_config): one every minMs..maxMs, never with a rival close in the Ring.
-    emotes: { enabled: false, minMs: 25000, maxMs: 70000, nextAt: 0, sent: 0, skipped: 0, last: 0 },
     // 29/09 render off: the game logic runs, PIXI stops drawing (CPU for timing).
     renderOff: { enabled: false, orig: null, app: null, patched: 0 },
     seq: 1,
@@ -2031,6 +2029,7 @@
   // options.bypassThrottle: reset only the client's local 100 ms guard; the
   // server still decides what it accepts.
   function firePunch(targetId, reason, options) {
+    // The punch-isolation profile limits Timing's own extra shots.
     if (state.punchIsolation.enabled && !["CTRL", "manual", "TICK_BLIND", "TICK_REACT"].includes(reason)) {
       state.lastFireResult = { targetId: asId(targetId) ?? -1, reason, calls: 0, sentCount: 0, errors: 0,
         held: "punch_isolation", ts: now() };
@@ -3522,7 +3521,15 @@
   // tick they choose (7 deaths today: the killer was the best candidate at P=0).
   // Their punch processes at T+60-90 (held train), our tick click at T+10 beats
   // it - but only if we actually fire. The floor makes them a real candidate.
+  // 26/10: "one step" is one king move onto a contact tile (1,1)/(-1,-1). The
+  // old test (|dx|,|dy| both 2 or 1-and-2) left out (2,0)/(0,2) - 35% of the
+  // 5354 Ring entries in the corpus - and floored (2,-1)/(1,-2), 0.1%: the
+  // blind click went to a rival that could not step in.
   const THREAT_STEP_FLOOR = 0.03;
+  function oneStepFromContact(dx, dy) {
+    if ((dx === 0 && dy === 0) || (dx === dy && Math.abs(dx) === 1)) return false;
+    return Math.max(Math.abs(dx - 1), Math.abs(dy - 1)) <= 1 || Math.max(Math.abs(dx + 1), Math.abs(dy + 1)) <= 1;
+  }
   const LOW_PING_MS = 60;
   const LOW_PING_BLIND_MIN = 0.9; // a standing rival already beside us: 0.975
   function lowPingActive() {
@@ -3535,7 +3542,7 @@
   const WALKER_BONUS = 1.3; // threatPick: a walking rival is hit ~40 ms faster
   const SWEEP_EXTRA_MS = 4;
   const TICK_BURST_GAP_MS = 1;
-  const TICK_BURST_MAX = 20;
+  const TICK_BURST_MAX = 100; // Hub 0.1.25: "Clicks por disparo" 1-100
   // The server gap starts at the burst's last request.
   const burstSpanMs = () => (clamp(state.tickBurst, 1, TICK_BURST_MAX) - 1) * TICK_BURST_GAP_MS;
   let HIT_LOCK_MS = 14000; // hit_lock_config (tests) can change it
@@ -3739,7 +3746,7 @@
           const movedLast = a.startAt >= E.lastBatchAt - 30 && (a.dirX || a.dirY);
           q = contactProb(dx, dy, movedLast ? DIR_ORIENT[`${a.dirX},${a.dirY}`] || 0 : 0);
           // One diagonal step from contact is one step from killing us.
-          if (d === 2 && dx !== 0 && dy !== 0 && q < THREAT_STEP_FLOOR) q = THREAT_STEP_FLOOR;
+          if (q < THREAT_STEP_FLOOR && oneStepFromContact(dx, dy)) q = THREAT_STEP_FLOOR;
         }
         q *= spot.w;
         if (q > p) { p = q; dist = d; from = spot; }
@@ -6652,13 +6659,6 @@
       case "requeue_now":
         requeueNow();
         break;
-      case "emote_config":
-        if ("enabled" in msg) state.emotes.enabled = Boolean(msg.enabled);
-        if ("minMs" in msg) state.emotes.minMs = clamp(Number(msg.minMs) || 0, 5000, 600000);
-        if ("maxMs" in msg) state.emotes.maxMs = clamp(Number(msg.maxMs) || 0, state.emotes.minMs, 900000);
-        state.emotes.nextAt = 0;
-        sendConfig();
-        break;
       case "render_off_config":
         state.renderOff.enabled = Boolean(msg.enabled);
         flagSave(RENDER_OFF_KEY, state.renderOff.enabled);
@@ -7771,40 +7771,6 @@
     sendDiagnostic("auto_ring", { joins: R.joins });
   }
 
-  // ---- Random emotes (29/09) -----------------------------------------------------
-  const EMOTE_IDS = [1, 2, 3, 4, 7]; // risa1, risa2, pedo, escupir, llorar
-  const EMOTE_SAFE_TILES = 4; // in the Ring, only with no free rival this close
-  function emotePump(t) {
-    const M = state.emotes;
-    if (!M.enabled) return;
-    if (!M.nextAt) M.nextAt = t + M.minMs + Math.random() * (M.maxMs - M.minMs);
-    if (t < M.nextAt) return;
-    const next = () => { M.nextAt = t + M.minMs + Math.random() * (M.maxMs - M.minMs); };
-    const action = providerInstance(state.providers.action);
-    if (!action || typeof action.actionRequest !== "function") return next();
-    if (roomKind() === "ring") {
-      const E = state.tickEngine;
-      const selfId = inferSelfId();
-      const me = ensureActorFromRenderer(selfId);
-      if (!me || E.selfOut) return next();
-      if (selfLocked(t) || exitBlocksLanding(t)) { M.skipped++; return next(); }
-      for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
-        const id = asId(rawId);
-        if (id == null || id === selfId || E.out.has(id) || isAlly(id) || isStale(id)) continue;
-        const a = ensureActorFromRenderer(id);
-        if (a && Math.max(Math.abs(a.toX - me.toX), Math.abs(a.toY - me.toY)) <= EMOTE_SAFE_TILES) {
-          M.skipped++;
-          M.nextAt = t + 3000; // try again soon, once the area is clear
-          return;
-        }
-      }
-    }
-    const id = EMOTE_IDS[Math.floor(Math.random() * EMOTE_IDS.length)];
-    try { action.actionRequest(id); M.sent++; M.last = id; } catch {}
-    sendDiagnostic("emote", { id });
-    next();
-  }
-
   // ---- Render off (29/09) --------------------------------------------------------
   // PIXI keeps ticking (tweens, avatar moves, the client's logic) but its
   // renderer draws nothing: software WebGL was eating the CPU the timing needs.
@@ -7882,7 +7848,6 @@
       flagLoad(RENDER_OFF_KEY, state.renderOff);
     }
     autoRingPump(t);
-    emotePump(t);
     if (state.renderOff.enabled || state.renderOff.orig) renderOffApply();
     refreshEliminated();
     refreshSilent();
@@ -8024,7 +7989,6 @@
       simon: simonSummary(),
       freeFire: { enabled: state.freeFire.enabled, gapMs: state.freeFire.gapMs },
       stale: { remembered: staleCount, listed: (() => { let n = 0; const av = sceneRenderer()?.avatars; if (av instanceof Map) for (const a of av.values()) if (isStaleAvatar(a)) n++; return n; })(), outOfRing: (() => { let n = 0; const av = sceneRenderer()?.avatars; if (av instanceof Map) for (const k of av.keys()) if (notRingSlot(asId(k))) n++; return n; })() },
-      emotes: { enabled: state.emotes.enabled, sent: state.emotes.sent, skipped: state.emotes.skipped, last: state.emotes.last, provider: Boolean(providerInstance(state.providers.action)) },
       renderOff: { enabled: state.renderOff.enabled, patched: state.renderOff.patched, provider: Boolean(providerInstance(state.providers.pixi)?.app) },
       timing: { ...state.timing, autoLead: leadCurrent() },
       state: { ...state.stateCfg },

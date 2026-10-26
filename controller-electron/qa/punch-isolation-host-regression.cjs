@@ -30,16 +30,17 @@ const socket = () => ({ messages: [], destroyed: false,
 const waitConfigs = () => new Promise(resolve => setTimeout(resolve, 280));
 
 (async () => {
-  await check("packaged launches always activate the tested T+13 profile and ignore phase overrides", () => {
-    for (const phase of [undefined, "13", "-20", "40", "bad"]) {
-      assert.equal(phaseFromEnv(true, { BB_TIMING_PUNCH_ISOLATION: "1", BB_TIMING_PUNCH_ISOLATION_PHASE: phase }), 13);
+  await check("isolation is opt-in via env only; by default launches run the real adaptive Timing", () => {
+    for (const flag of [undefined, "", "0", "true", 1]) {
+      assert.equal(phaseFromEnv(false, { BB_TIMING_PUNCH_ISOLATION: flag }), null);
+      assert.equal(phaseFromEnv(true, { BB_TIMING_PUNCH_ISOLATION: flag }), null, "packaged default is also real Timing");
     }
     assert.ok(mainSource.includes("punchIsolationPhase: punchIsolationPhaseFromEnvironment(app.isPackaged)"));
   });
-  await check("source opt-in is exact; valid decimal phases are bounded and invalid phases default to 13", () => {
-    for (const flag of [undefined, "", "0", "true", 1]) assert.equal(phaseFromEnv(false, { BB_TIMING_PUNCH_ISOLATION: flag }), 13);
+  await check("with the isolation env set, valid decimal phases are bounded and invalid phases default to 13", () => {
     for (const [raw, expected] of [[undefined,13], ["",13], ["13",13], [" -20 ",-20], ["40",40], ["13.5",13.5], [".5",.5], ["41",13], ["-21",13], ["Infinity",13], ["NaN",13], ["0x10",13], ["1;throw Error()",13]]) {
       assert.equal(phaseFromEnv(false, { BB_TIMING_PUNCH_ISOLATION: "1", BB_TIMING_PUNCH_ISOLATION_PHASE: raw }), expected, String(raw));
+      assert.equal(phaseFromEnv(true, { BB_TIMING_PUNCH_ISOLATION: "1", BB_TIMING_PUNCH_ISOLATION_PHASE: raw }), expected, "packaged " + raw);
     }
   });
   await check("the Core option is numeric and launch-only, without coercing saved values", () => {

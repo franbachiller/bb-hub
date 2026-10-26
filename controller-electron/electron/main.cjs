@@ -224,7 +224,6 @@ function wireIpc() {
   handle("controller:removeAlly", (_event, value) => core.removeAlly(value && typeof value === "object" ? { accountId: value.accountId, name: value.name } : null));
   handle("controller:getPortraits", () => core.getPortraits());
   handle("controller:setAutoRun", (_event, value) => core.setAutoRun(value));
-  handle("controller:setEmotes", (_event, value) => core.setEmotes(value));
   handle("controller:setCocoSelf", (_event, mode) => core.setCocoSelf(mode));
   handle("controller:setCocoSelfKey", (_event, code) => core.setCocoSelfKey(code));
   handle("controller:cocoSelfNow", () => core.cocoSelfNow());
@@ -370,9 +369,12 @@ function lockDownRuntime(state) {
 }
 
 function punchIsolationPhaseFromEnvironment(isPackaged, env = process.env) {
-  // Promote the exact single-request T+13 profile validated in the 9–2 session.
-  // Packaged builds always use it; source launches can still run phase probes.
-  if (isPackaged || env.BB_TIMING_PUNCH_ISOLATION !== "1") return 13;
+  // Punch isolation is a DIAGNOSTIC: one blind T+13 shot per step with no
+  // autotune, reaction, sweep or retry. It is opt-in only via the isolated
+  // launcher (BB_TIMING_PUNCH_ISOLATION=1). By default Timing runs its real
+  // adaptive engine (15/10: an earlier change had forced this on everywhere, which crippled
+  // Timing — the user never saw the real motor since 0.1.22).
+  if (env.BB_TIMING_PUNCH_ISOLATION !== "1") return null;
   const raw = typeof env.BB_TIMING_PUNCH_ISOLATION_PHASE === "string" ? env.BB_TIMING_PUNCH_ISOLATION_PHASE.trim() : "";
   const phase = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) ? Number(raw) : NaN;
   return Number.isFinite(phase) && phase >= -20 && phase <= 40 ? phase : 13;
