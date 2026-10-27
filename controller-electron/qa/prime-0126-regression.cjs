@@ -54,9 +54,7 @@ function applyTo(rt, messages) {
 (async () => {
   await check("the Hub packages the 30/09 runtime byte for byte", () => {
     // LF bytes: a CRLF checkout (core.autocrlf) is the same file.
-    const sha = crypto.createHash("sha256").update(fs.readFileSync(RUNTIME, "utf8").replace(/
-/g, "
-")).digest("hex");
+    const sha = crypto.createHash("sha256").update(fs.readFileSync(RUNTIME, "utf8").replace(/\r\n/g, "\n")).digest("hex");
     assert.equal(sha, PRIME_SHA256);
     assert.match(fs.readFileSync(RUNTIME, "utf8"), /BRIDGE_BUILD = "29092026_html5_hub_v6_44_silent_gap"/);
   });
