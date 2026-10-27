@@ -6,7 +6,7 @@ El juego vuelve a correr el runtime del 30/09 (`29092026_html5_hub_v6_44_silent_
 
 - Runtime del 30/09 sin cambios (sha256 `2ba9151a…`), `ring_scene` igual.
 - El Hub ya no engancha el observador del cable (solo con `BB_WIRE_OBSERVER=1`), no sube la prioridad del juego cada 15 s ni lee retratos de la sala: el lanzador del 30/09 no hacía nada de eso.
-- Timing como el 27/10: T+10 manual, 1 pedido, 1 click, barrido y reacción, sin segundo click. Los ajustes de la 0.1.25 o anteriores pasan una vez a estos valores. Clicks por disparo 1-20 (tope del runtime).
+- Timing como el 30/09: T+10 manual, 1 pedido, 1 click, segundo click +105 al mismo rival (llega a T+115; el 30/09 lo llevaban todos los disparos), barrido y reacción. Los ajustes de la 0.1.25 o anteriores pasan una vez a estos valores. Clicks por disparo 1-20 (tope del runtime).
 - Ese runtime no tiene Simon Dice, "Solo el fichado" ni la tecla de coco propio: se sacan de la interfaz y el objetivo queda automático.
 
 Validación: `qa/prime-0126-regression.cjs` (runtime byte por byte, configuración del runtime tras conectar con el Hub igual a la sesión del 8-1, lanzamiento sin observador/prioridad/retratos), `timing-shot-config-regression` actualizada, allies, client-discovery, port-conflict, pro-hotkey-updater, punch-isolation-host, runtime-security; avatar y UI actual con Electron. Las pruebas del runtime posterior al 30/09 pasan a `qa/runtime-post-30sep/` (no aplican a lo que se distribuye). Entrega: `DISTRIBUCION/BB Hub 0.1.26 Windows x64`.

@@ -1,7 +1,7 @@
 "use strict";
 // 0.1.26 (27/10): the Hub ships the 30/09 runtime (v6_44_silent_gap) byte for byte and
-// configures it as the user's 8-1 session of 27/10: T+10 manual, one request, one click,
-// sweep and reaction on, no second click. Feeds the Hub's real connect messages into
+// configures it as on 30/09: T+10 manual, one request, one click, second click +105 at
+// the same rival (T+115), sweep and reaction on. Feeds the Hub's real connect messages into
 // the shipped runtime and checks the runtime's own state.
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
@@ -61,12 +61,12 @@ function applyTo(rt, messages) {
 
   for (const [label, saved] of [
     ["a new install", null],
-    ["a 0.1.25 install (T+8, second click +105)", { timingOn: true, timingDefaultsRev: "0.1.25", tickAim: 8, advanced: { burst: 1, repeatMs: 105, sweep: true, reactive: true } }]
+    ["a 0.1.25 install (T+8, no second click)", { timingOn: true, timingDefaultsRev: "0.1.25", tickAim: 8, advanced: { burst: 1, repeatMs: 0, sweep: false, reactive: true } }]
   ]) {
-    await check(`${label} configures the runtime as the 8-1 session`, async () => {
+    await check(`${label} configures the runtime as on 30/09`, async () => {
       const { core, messages } = await connectMessages(saved);
       assert.equal(core.tickAim, 10);
-      assert.deepEqual(core.advanced, { burst: 1, repeatMs: 0, sweep: true, reactive: true });
+      assert.deepEqual(core.advanced, { burst: 1, repeatMs: 105, sweep: true, reactive: true });
       const s = applyTo(runtime(), messages);
       const tick = s.timing.tick;
       assert.equal(s.timing.enabled, true);
@@ -79,7 +79,7 @@ function applyTo(rt, messages) {
       assert.equal(tick.reactive, true);
       assert.equal(s.punchPackets, 1);
       assert.equal(s.tickAdv.burst, 1);
-      assert.equal(s.tickAdv.repeatMs, 0);
+      assert.equal(s.tickAdv.repeatMs, 105);
       assert.equal(s.tickAdv.sweep, true);
     });
   }

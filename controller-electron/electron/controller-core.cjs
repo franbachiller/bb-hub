@@ -238,8 +238,9 @@ const MOVE_BRAIN_NAMES = ["planner", "tile", "tile2", "tile3"];
 // Whitelist (29/09): names or account ids the bot never punches (the ally account,
 // friends). Stored as typed; the runtime matches names case-insensitively.
 // Advanced Timing knobs (29/09). Factory values = the prime of 30/09 (0.1.26):
-// one click per shot, no second click, sweep and reaction on.
-const ADVANCED_DEFAULTS = Object.freeze({ burst: 1, repeatMs: 0, sweep: true, reactive: true });
+// one click per shot, second click +105 at the same rival (every shot on 30/09 had
+// it, at T+115), sweep and reaction on.
+const ADVANCED_DEFAULTS = Object.freeze({ burst: 1, repeatMs: 105, sweep: true, reactive: true });
 const BURST_MAX = 20; // 0.1.26: the 30/09 runtime caps a tick burst at 20 (TICK_BURST_MAX)
 // T+ of the tick click, always manual: T+10 as on 30/09 (0.1.26).
 const TICK_AIM_DEFAULT = 10;

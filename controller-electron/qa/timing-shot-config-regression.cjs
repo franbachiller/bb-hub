@@ -19,20 +19,20 @@ const read = (file) => JSON.parse(fs.readFileSync(file, "utf8"));
 let passed = 0;
 function check(name, fn) { fn(); passed++; console.log("PASS " + name); }
 
-check("a fresh Hub aims at T+10 with one click per shot and no second click", () => {
+check("a fresh Hub aims at T+10 with one click per shot and a second click +105", () => {
   const { core } = make("fresh");
   assert.equal(core.tickAim, 10);
-  assert.deepEqual(core.advanced, { burst: 1, repeatMs: 0, sweep: true, reactive: true });
+  assert.deepEqual(core.advanced, { burst: 1, repeatMs: 105, sweep: true, reactive: true });
   const tick = core.singleTiming(true).tick;
   assert.equal(tick.offsetMs, 10);
   assert.equal(tick.auto, false, "the learned Auto never moves the aim");
 });
 
 check("settings from 0.1.25 or older move to the 0.1.26 defaults once", () => {
-  const { core, settingsPath } = make("old", { timingDefaultsRev: "0.1.25", tickAim: 8, advanced: { burst: 5, repeatMs: 105, sweep: true, reactive: true }, emotes: true, gridMode: true, pelx: { enabled: true } });
+  const { core, settingsPath } = make("old", { timingDefaultsRev: "0.1.25", tickAim: 8, advanced: { burst: 5, repeatMs: 0, sweep: true, reactive: true }, emotes: true, gridMode: true, pelx: { enabled: true } });
   assert.equal(core.tickAim, 10);
   assert.equal(core.advanced.burst, 1);
-  assert.equal(core.advanced.repeatMs, 0);
+  assert.equal(core.advanced.repeatMs, 105);
   core.persistSettings();
   const saved = read(settingsPath);
   assert.equal(saved.timingDefaultsRev, "0.1.26");

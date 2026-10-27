@@ -170,7 +170,7 @@ const TICK_AIM_DEFAULT = 10;
 const TICK_AIM_MAX = 100;
 const BURST_DEFAULT = 1;
 const BURST_MAX = 20; // 0.1.26: the 30/09 runtime caps a tick burst at 20 (TICK_BURST_MAX)
-const ADVANCED_FACTORY = { repeatMs: 0, sweep: true, reactive: true };
+const ADVANCED_FACTORY = { repeatMs: 105, sweep: true, reactive: true };
 function tickAimOf(snapshot) {
   const aim = Number(snapshot.tickAim);
   return Number.isFinite(aim) ? aim : TICK_AIM_DEFAULT;
