@@ -1,5 +1,16 @@
 # BB Hub — distribución Windows
 
+## 0.1.26 — Vuelve el Timing del prime (30/09)
+
+El juego vuelve a correr el runtime del 30/09 (`29092026_html5_hub_v6_44_silent_gap`), byte por byte, y el Hub lo lanza como lo hacía el lanzador de ese día. El 30/09 fue el mejor día registrado (131-60 en Ring, 21-3 parado contra un rival que llega); el 27/10 esa misma combinación fue 8-1 mientras el runtime de la 0.1.25 iba 5-11 en cruces el mismo día.
+
+- Runtime del 30/09 sin cambios (sha256 `2ba9151a…`), `ring_scene` igual.
+- El Hub ya no engancha el observador del cable (solo con `BB_WIRE_OBSERVER=1`), no sube la prioridad del juego cada 15 s ni lee retratos de la sala: el lanzador del 30/09 no hacía nada de eso.
+- Timing como el 27/10: T+10 manual, 1 pedido, 1 click, barrido y reacción, sin segundo click. Los ajustes de la 0.1.25 o anteriores pasan una vez a estos valores. Clicks por disparo 1-20 (tope del runtime).
+- Ese runtime no tiene Simon Dice, "Solo el fichado" ni la tecla de coco propio: se sacan de la interfaz y el objetivo queda automático.
+
+Validación: `qa/prime-0126-regression.cjs` (runtime byte por byte, configuración del runtime tras conectar con el Hub igual a la sesión del 8-1, lanzamiento sin observador/prioridad/retratos), `timing-shot-config-regression` actualizada, allies, client-discovery, port-conflict, pro-hotkey-updater, punch-isolation-host, runtime-security; avatar y UI actual con Electron. Las pruebas del runtime posterior al 30/09 pasan a `qa/runtime-post-30sep/` (no aplican a lo que se distribuye). Entrega: `DISTRIBUCION/BB Hub 0.1.26 Windows x64`.
+
 ## 0.1.25 — Timing del 26/10, T+ y clicks a mano
 
 Timing queda como se probó el 26/10 (dos rondas ganadas seguidas con T+8 manual):

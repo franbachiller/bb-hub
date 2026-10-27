@@ -202,10 +202,10 @@ class GameLauncher extends EventEmitter {
     try { await recorder?.close(); } catch {}
   }
 
-  // Passive CDP observer of the game socket for the whole connection (06/10):
-  // the original launcher and 0.1.18 with the combat log, the two setups that
-  // played right, both had it attached. Writes only while the log is on.
+  // Passive CDP observer of the game socket. 0.1.26: OFF unless BB_WIRE_OBSERVER=1.
+  // The prime (30/09) never had it; with it attached the Ring went 56% -> 43%.
   startWire() {
+    if (process.env.BB_WIRE_OBSERVER !== "1") return Promise.resolve();
     if (this.wire || !this.page) return Promise.resolve();
     if (this.wireStarting) return this.wireStarting;
     const page = this.page;
@@ -529,8 +529,8 @@ class GameLauncher extends EventEmitter {
     this.setState("ready", "Juego conectado.");
     if (this.diagnostics) await this.applyDiagnostics();
     this.startAvatarRead();
-    this.startPriorityBoost();
-    this.startPortraitRead();
+    // 0.1.26: the game runs as the 30/09 launcher ran it (prime): no periodic
+    // PowerShell priority boost and no portrait polling of the game frame.
     void this.startWire();
 
     const closed = () => {

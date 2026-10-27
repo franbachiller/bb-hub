@@ -142,6 +142,8 @@ const stubApi = {
 // Electron always provides window.ringController (preload). Demo data only in the vite dev server.
 const api = window.ringController || (import.meta.env.DEV ? createDemoApi(fallbackSnapshot) : stubApi);
 
+// 0.1.26: the game runs the 30/09 runtime (prime). Simon Dice, "Solo el fichado" and the
+// own-coco key need runtime code from later builds, so they are not offered.
 const navItems = [
   { id: "dashboard", label: "Inicio", icon: Gauge },
   { id: "timing", label: "Timing", icon: Zap },
@@ -149,7 +151,6 @@ const navItems = [
   { id: "dropHunter", label: "Drops", icon: Crosshair },
   { id: "players", label: "Jugadores", icon: Users },
   { id: "allies", label: "Aliados", icon: ShieldCheck },
-  { id: "simon", label: "Simon Dice", icon: Smile },
   { id: "logs", label: "Registro", icon: ScrollText }
 ];
 
@@ -165,11 +166,11 @@ function timingFixedPhase(snapshot) {
   const phase = snapshot.punchIsolationPhase;
   return phase != null && Number.isFinite(Number(phase)) ? Number(phase) : null;
 }
-const TICK_AIM_DEFAULT = 8;
+const TICK_AIM_DEFAULT = 10;
 const TICK_AIM_MAX = 100;
 const BURST_DEFAULT = 1;
-const BURST_MAX = 100;
-const ADVANCED_FACTORY = { repeatMs: 105, sweep: true, reactive: true };
+const BURST_MAX = 20; // 0.1.26: the 30/09 runtime caps a tick burst at 20 (TICK_BURST_MAX)
+const ADVANCED_FACTORY = { repeatMs: 0, sweep: true, reactive: true };
 function tickAimOf(snapshot) {
   const aim = Number(snapshot.tickAim);
   return Number.isFinite(aim) ? aim : TICK_AIM_DEFAULT;
@@ -436,12 +437,8 @@ function TimingView({ snapshot, applyTiming, runAction, setActiveTab }) {
             <Toggle label="Activar Timing automático" checked={on} onChange={applyTiming} large tone="ember" />
           </div>
           <div className="spec">
-            <Setting title="Objetivo de Timing" text={snapshot.timing?.targetMode === "SELECTED" ? "Usa el mismo motor de Timing, exclusivamente contra el fichado. Sin ficha válida no golpea a otro jugador." : "Timing elige al rival por proximidad. Fichar en el juego no cambia su elección."} stack>
-              <div className="segmented" role="group" aria-label="Objetivo de Timing">{[["AUTO", "Objetivo automático"], ["SELECTED", "Solo el fichado"]].map(([value, label]) => <button key={value} className={`seg ${(snapshot.timing?.targetMode || "AUTO") === value ? "is-on" : ""}`} aria-pressed={(snapshot.timing?.targetMode || "AUTO") === value} onClick={() => runAction(() => api.applyTiming({ targetMode: value }))}>{label}</button>)}</div>
-            </Setting>
             <TimingHotkeyRow snapshot={snapshot} runAction={runAction} />
             <Setting title="Modo automático" text="Se mueve, golpea, sale al perder y se vuelve a inscribir al Ring (paga la entrada)."><Toggle label="Modo automático" disabled={!snapshot.ringBoard?.licensed} checked={snapshot.autoRun === true} onChange={(checked) => runAction(() => api.setAutoRun(checked))} /></Setting>
-            <CocoSelfRow snapshot={snapshot} runAction={runAction} />
           </div>
         </section>
         <ShotSection snapshot={snapshot} runAction={runAction} />
@@ -788,7 +785,7 @@ function AlliesView({ snapshot, players, portraits, runAction }) {
   </>;
 }
 
-// Disparo (0.1.25): when the tick click lands (T+0..100, T+8 by default) and how
+// Disparo (0.1.25): when the tick click lands (T+0..100, T+10 by default) and how
 // many requests each shot sends (1..100, 1 by default). Both are manual.
 function ShotSection({ snapshot, runAction }) {
   const fixedPhase = timingFixedPhase(snapshot);

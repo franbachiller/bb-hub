@@ -4,7 +4,7 @@
   const KEY = "__BBFlashRuntime";
   if (window[KEY]?.__installed) return;
 
-  const BRIDGE_BUILD = "26102026_html5_release_0125";
+  const BRIDGE_BUILD = "29092026_html5_hub_v6_44_silent_gap";
   // Contact switch, measured to the millisecond in the duel lab (26/09, two
   // accounts on one PC, harness/run_duel_lab.js): in the batch-arrival frame
   // a punch is rejected up to T-2 and accepted from T-1 whoever walks in (for
@@ -30,9 +30,6 @@
   // races (+3/+4 each) then pushed it to 39 and it was saved, so clicks landed
   // at T+31 against rivals at T+6-8. It may not climb past this.
   const TICK_MARGIN_MAX = 16;
-  // 01/10: a dispatch this late reads as landing error (one-sided); those
-  // rejects are excluded from corr/sigma instead of calibrating on them.
-  const TICK_CAL_MAX_LATE_MS = 5;
   // Hub UI still configures windows on the Flash 0..750 scale.
   // HTML5 Ring step duration is ~600ms — scale Hub values onto the live stepMs.
   const STEP_HUB_REF_MS = 750;
@@ -79,7 +76,6 @@
     timing: {
       enabled: false,
       source: "STEP",
-      targetMode: "AUTO",
       stepAnchor: "SELF",
       start: 435,
       end: 750,
@@ -134,15 +130,6 @@
         burstGapMs: 4
       }
     },
-    // EXPERIMENTAL (02/10, pedido del usuario): "disparo libre". Vive FUERA de
-    // timing.tick a proposito (no debe romper la invariante Hub<->runtime del
-    // clamp del tick). Cuando enabled, el tick rellena TODA su ventana con
-    // disparos cada gapMs al mejor objetivo (threatPick se re-evalua por tiro),
-    // ignorando el espaciado interno de ~100 ms, el sweep/repeat y la guarda de
-    // cooldown. El hueco de 100 ms del SERVER sigue existiendo (los tiros de mas
-    // se dropean), asi que PUEDE rendir peor: es para medir. OFF por defecto.
-    freeFire: { enabled: false, gapMs: 25 },
-    simon: { enabled: false, delayMs: 0, rooms: new Set(), roomsLoaded: false, sendName: "", games: 0, rounds: 0, answered: 0, skippedRed: 0, errors: 0, wins: 0, punchesHeld: 0, last: null },
     stateCfg: {
       enabled: false,
       delay: 0
@@ -213,9 +200,6 @@
       lastDir: "",
       lastAt: 0
     },
-    // Rolling tap of every packet (in+out) for the shell server-REPL. In memory
-    // only, never written to disk by the runtime; the harness pulls it via CDP.
-    rawTap: { on: false, ring: [], max: 4000 },
     performance: {
       stateMs: 250,
       sceneMs: 2000,
@@ -259,7 +243,7 @@
     landingEliminated: false,
     lab: { running: false, replies: [] },
     exitMode: exitInit(),
-    react: { pending: false, pendingAt: 0, lastKey: "", fired: 0, lateral: new Set(), fallback: null },
+    react: { pending: false, pendingAt: 0, lastKey: "", fired: 0, lateral: new Set() },
     tickEngine: {
       batches: [],
       origin: null,
@@ -269,9 +253,6 @@
       armedTick: null,
       plans: new Map(),
       shots: [],
-      // Every punch any engine dispatched (firePunch success path): lets a 144
-      // know when another engine's request could own it (attribution gate).
-      allShots: [],
       errs: [],
       corr: 0,
       lastErr: null,
@@ -294,7 +275,6 @@
       // while we are out) are ignored by the server without a reply.
       out: new Set(),
       outGone: new Set(), // out players that already left the room
-      outAvatars: new Map(), // native incarnation eliminated by the last 211
       selfOut: false,
       // Targets the server never answers (no 144, no 211): skipped for a while.
       silentPending: [], // { id, at } engine clicks waiting for a reply
@@ -303,7 +283,6 @@
       // Landing a hit locks the attacker's punches for ~13.8 s (July: 0 of 587
       // follow-ups answered before it, nobody ever hit twice within 14 s).
       selfLockEnd: 0, // local landing time before which our clicks are ignored
-      selfLockKind: "",
       lockUntil: new Map(), // rival id -> local time its clicks start counting again
       unlock: { end: 0, fired: 0, noTarget: 0, lastTarget: -1 },
       // Rivals whose punch animation or coco ends at a known moment: one click
@@ -311,7 +290,7 @@
       runlock: new Map(),
       runlockStats: { armed: 0, fired: 0, noContact: 0, lastTarget: -1 },
       sweepStats: { fired: 0 },
-      stats: { planned: 0, fired: 0, blocked: 0, skipped: 0, blind: 0, reactive: 0, replies: 0, hits: 0, calibrated: 0, calSkippedLate: 0, calSkippedAmbiguous: 0, hitsUnmatched: 0, lastSkip: "" }
+      stats: { planned: 0, fired: 0, blocked: 0, skipped: 0, blind: 0, reactive: 0, replies: 0, hits: 0, lastSkip: "" }
     },
     // Step walk: our walks go to the server one tile per tick (see stepWalkIntercept).
     stepWalk: { enabled: true, goal: null, internal: false, sentAt: 0, from: null, retries: 0, steps: 0, walks: 0, gaveUp: 0 },
@@ -330,25 +309,15 @@
     // repeat click at the SAME target repeatMs after the first (0 = off; it replaces
     // the sweep, both would share the server's 100 ms gap).
     tickAdv: { sweep: true, repeatMs: 0, repeats: 0 },
-    // Session-only diagnostic: one primary per tick, with a frozen arrival.
-    // It does not rewrite the normal configuration or learned storage.
-    punchIsolation: { enabled: false, phaseMs: 13, saved: null },
     // 29/09 low-ping mode (low_ping_config): "auto" = on while RTT < LOW_PING_MS.
     // 29/09: off by default. On cryptic (ping ~25) 20 of 29 ticks a rival hit us without
     // a click from us had been skipped as "ping_bajo": the reaction never came in time.
     lowPing: { mode: "off", skipped: 0 },
-    noThrottle: { enabled: true, installed: false, skipped: 0 },
     burstAB: false,
     burstRound: 0,
     // 27/09 coco guard: a coco at the rival waiting next to us, landing before our
     // upper animation ends (cocos can be thrown during it and are not held).
-    // 01/10: leadMs 300 -> 60. The ambusher of our unlock often steps in at the
-    // last tick before the lock ends (live: Glotona entered at end-240); at
-    // +300 the guard judged adjacency one tick too early (23x "nadie_pegado",
-    // 0 throws today). At +60 its check runs after that batch. selfMode
-    // "auto": the self-coco fallback when the guard can no longer cover the
-    // unlock (see cocoSelfOnStep).
-    cocoGuard: { enabled: true, upperEnd: 0, leadMs: 60, max: 3, used: 0, fired: 0, noTarget: 0, lastTarget: -1, selfMode: "auto", selfEnd: 0, selfKey: "", selfKeyInstalled: false, thrown: [], pending: new Map() },
+    cocoGuard: { enabled: true, upperEnd: 0, leadMs: 300, max: 3, used: 0, fired: 0, noTarget: 0, lastTarget: -1, pending: new Map() },
     // 28/09 reach probe: one click at a rival 1-2 tiles away but not beside us.
     // Off (28/09 night): 0 accepted of ~420 (pc and android-app), and every bounce
     // costs 100 ms of server gap. reach_probe_config turns it back on.
@@ -362,6 +331,8 @@
       // 29/09 re-queue key (requeue_hotkey_config): KeyboardEvent.code, "" = off.
       // oneShotUntil: the cycle runs once, without its waits, until we are queued.
       hotkey: "", oneShotUntil: 0, requeues: 0 },
+    // 29/09 random emotes (emote_config): one every minMs..maxMs, never with a rival close in the Ring.
+    emotes: { enabled: false, minMs: 25000, maxMs: 70000, nextAt: 0, sent: 0, skipped: 0, last: 0 },
     // 29/09 render off: the game logic runs, PIXI stops drawing (CPU for timing).
     renderOff: { enabled: false, orig: null, app: null, patched: 0 },
     seq: 1,
@@ -605,8 +576,6 @@
       serverPingMs: state.serverPingMs,
       hidden: typeof document !== "undefined" && Boolean(document.hidden),
       inboundBacklog: Number(socket?.inboundBacklog) || 0,
-      punchIsolation: state.punchIsolation.enabled,
-      isolationPhaseMs: state.punchIsolation.enabled ? state.punchIsolation.phaseMs : null,
       ...data
     });
   }
@@ -637,421 +606,6 @@
     return state.selectedId;
   }
 
-  // Independent step autoclick. A Walk's duration describes an individual
-  // movement, not an absolute server clock. Anchor on worker delivery, before
-  // the client's RAF queue; never invent subsequent steps while nobody walks.
-  const stepClick = {
-    enabled: false, source: "PAIR", pattern: "SINGLE", momentMs: 375, startMs: 350, endMs: 400, intervalMs: 10,
-    generation: 0, worker: null, workerUrl: "", clock: null,
-    sent: 0, skipped: 0, errors: 0, steps: 0, last: null, reason: "off",
-    early: new Map(), packetAt: new Map(), nativeSeen: new WeakMap(), monitor: null,
-    trace: null, lastCrossing: null, lastEncounter: null, stateAt: -1e9
-  };
-
-  function stepClickSelection() {
-    // Deliberately no selectedId(): that helper retains a previous ficha.
-    let ficha;
-    try { ficha = providerInstance(state.providers.selection)?.avatarFichado; } catch { return null; }
-    if (ficha?.userSpaceId == null) return null;
-    const id = asId(ficha?.userSpaceId);
-    const selfId = inferSelfId();
-    const av = id == null ? null : providerInstance(state.providers.renderer)?.avatars?.get?.(id);
-    // Verified against the live native client: its ficha IS the renderer
-    // avatar. Require that exact object, so a reused slot cannot inherit it.
-    if (selfId < 0 || id == null || id < 0 || id === selfId || !av || ficha !== av || av._removed || av.__departing || isStaleAvatar(av)) return null;
-    return { id, name: String(av.avatarInfo?.username || ""), ally: isAlly(id) };
-  }
-
-  function stepClickSummary() {
-    const c = stepClick.clock;
-    const t = now();
-    const selection = stepClick.enabled ? stepClickSelection() : null;
-    const phase = c ? Math.max(0, t - c.at) : null;
-    return {
-      enabled: stepClick.enabled, source: stepClick.source,
-      pattern: stepClick.pattern, momentMs: stepClick.momentMs,
-      startMs: stepClick.startMs, endMs: stepClick.endMs, intervalMs: stepClick.intervalMs,
-      durationMs: c?.durationMs ?? null, phaseMs: phase == null ? null : Math.min(phase, c.durationMs),
-      running: Boolean(c && phase < c.durationMs), referenceId: c?.id ?? -1,
-      clockSource: c?.hook || "", sampleAt: t,
-      targetId: selection?.id ?? -1, targetName: selection?.name || "",
-      sent: stepClick.sent, skipped: stepClick.skipped, errors: stepClick.errors,
-      steps: stepClick.steps, crossing: stepClickCrossingSummary(),
-      lastCrossing: stepClick.lastCrossing ? stepClickCrossingSummary(stepClick.lastCrossing) : null,
-      lastEncounter: stepClick.lastEncounter ? stepClickCrossingSummary(stepClick.lastEncounter) : null,
-      latencyMs: state.serverPingMs != null ? rttEstimateMs() : null,
-      reason: !stepClick.enabled ? "off" : !state.hubConnected ? "disconnected" : !selection ? "no_selection" : selection.ally ? "ally" : stepClick.reason,
-      last: stepClick.last
-    };
-  }
-
-  function stepClickCrossingSummary(trace = stepClick.trace || stepClick.lastCrossing) {
-    const selection = stepClickSelection();
-    if (!trace || !selection || trace.targetId !== selection.id ||
-        trace.target !== sceneRenderer()?.avatars?.get?.(selection.id)) return null;
-    return { targetId: trace.targetId, durationMs: trace.durationMs, closestMs: trace.closestMs,
-      closestContactMs: trace.closestContactMs ?? null,
-      distancePx: trace.distancePx, contactFromMs: trace.contactFromMs, contactToMs: trace.contactToMs,
-      contactWindows: trace.contactWindows, resolutionMs: trace.resolutionMs, samples: trace.samples,
-      source: trace.source, clockSource: trace.clockSource, referenceId: trace.referenceId,
-      motionKind: trace.movesSelf ? (trace.movesTarget ? "BOTH" : "SELF") : (trace.movesTarget ? "SELECTED" : "STILL"),
-      complete: trace.complete, active: trace === stepClick.trace };
-  }
-
-  function stepClickPublish(force = false) {
-    if (!state.hubConnected || now() - stepClick.stateAt < (force ? 40 : 100)) return;
-    stepClick.stateAt = now();
-    sendToHub({ type: "step_click_state", status: stepClickSummary() });
-  }
-
-  function stepClickFinishCrossing(complete) {
-    const trace = stepClick.trace;
-    if (!trace) return;
-    trace.complete = complete;
-    stepClick.lastCrossing = trace;
-    // A partial approach is not a measured crossing. Keep the prior completed
-    // encounter visible until another complete one replaces it.
-    if (complete && trace.samples >= 2 && trace.contactWindows.length) stepClick.lastEncounter = trace;
-    stepClick.trace = null;
-    if (trace.samples >= 2) sendDiagnostic("step_crossing", {
-      targetId: trace.targetId, durationMs: trace.durationMs, closestMs: trace.closestMs,
-      closestContactMs: trace.closestContactMs ?? null,
-      source: trace.source, clockSource: trace.clockSource, referenceId: trace.referenceId,
-      motionKind: trace.movesSelf ? (trace.movesTarget ? "BOTH" : "SELF") : (trace.movesTarget ? "SELECTED" : "STILL"),
-      distancePx: trace.distancePx, contactFromMs: trace.contactFromMs, contactToMs: trace.contactToMs,
-      resolutionMs: trace.resolutionMs, samples: trace.samples, complete
-    });
-  }
-
-  // Native WalkingAnimation exposes elapsedMs/time and posIni/posFin. Those
-  // positions are its ground-plane interpolation, before elevation and hats.
-  // Circuit movement instead updates avatar.screenPos directly every frame.
-  function stepClickVisualPoint(avatar) {
-    const a = avatar?.currentAnimation;
-    if (a?.getType?.() === "WalkingAnimation" && a.posIni && a.posFin && Number(a.time) > 0 && Number.isFinite(Number(a.elapsedMs))) {
-      const p = Math.max(0, Math.min(1, Number(a.elapsedMs) / Number(a.time)));
-      const x = Number(a.posIni.x) + (Number(a.posFin.x) - Number(a.posIni.x)) * p;
-      const y = Number(a.posIni.y) + (Number(a.posFin.y) - Number(a.posIni.y)) * p;
-      if (Number.isFinite(x) && Number.isFinite(y)) return { x, y };
-    }
-    const p = avatar?.screenPos;
-    return p && Number.isFinite(Number(p.x)) && Number.isFinite(Number(p.y)) ? { x: Number(p.x), y: Number(p.y) } : null;
-  }
-
-  function stepClickSampleCrossing(at = now()) {
-    const c = stepClick.clock, selection = stepClickSelection(), renderer = sceneRenderer();
-    const self = renderer?.avatars?.get?.(inferSelfId());
-    const target = selection && renderer?.avatars?.get?.(selection.id);
-    if (!c || !self || !target || selection.ally) { stepClick.trace = null; return; }
-    const phase = at - c.at;
-    if (phase < 0) return;
-    if (phase >= c.durationMs) {
-      const trace = stepClick.trace;
-      stepClickFinishCrossing(Boolean(trace && trace.samples >= 2 && at - trace.lastAt <= Math.max(50, 2 * (trace.resolutionMs || 16))));
-      return;
-    }
-    const p = stepClickVisualPoint(self), q = stepClickVisualPoint(target);
-    if (!p || !q) return;
-    let trace = stepClick.trace;
-    if (!trace || trace.self !== self || trace.target !== target || trace.generation !== stepClick.generation) {
-      if (stepClick.lastCrossing && (stepClick.lastCrossing.self !== self || stepClick.lastCrossing.target !== target)) stepClick.lastCrossing = null;
-      trace = { self, target, targetId: selection.id, generation: stepClick.generation, durationMs: c.durationMs,
-        source: stepClick.source, clockSource: c.hook, referenceId: c.id, movesSelf: false, movesTarget: false,
-        closestMs: null, distancePx: null, minDistance: Infinity, contactFromMs: null, contactToMs: null,
-        closestContactMs: null, minContactDistance: Infinity,
-        contactWindows: [], wasContact: false,
-        resolutionMs: null, lastAt: null, samples: 0, complete: false };
-      stepClick.trace = trace;
-    }
-    if (trace.lastAt === at) return;
-    if (trace.lastAt != null) trace.resolutionMs = Math.max(trace.resolutionMs || 0, at - trace.lastAt);
-    trace.lastAt = at; trace.samples++;
-    const moving = avatar => {
-      const animation = avatar?.currentAnimation;
-      return animation?.getType?.() === "WalkingAnimation" && !animation.hasAnimationFinished &&
-        Number(animation.elapsedMs) < Number(animation.time);
-    };
-    trace.movesSelf ||= c.ids.has(inferSelfId()) || moving(self);
-    trace.movesTarget ||= c.ids.has(selection.id) || moving(target);
-    const distance = Math.hypot(p.x - q.x, p.y - q.y);
-    if (distance < trace.minDistance) {
-      trace.minDistance = distance;
-      trace.distancePx = Math.round(distance * 10) / 10;
-      trace.closestMs = Math.round(phase * 10) / 10;
-    }
-    const contact = lateralAdjacent(self.position?.x, self.position?.y, target.position?.x, target.position?.y);
-    if (contact) {
-      if (distance < trace.minContactDistance) {
-        trace.minContactDistance = distance;
-        trace.closestContactMs = Math.round(phase * 10) / 10;
-      }
-      if (trace.contactFromMs == null) trace.contactFromMs = Math.round(phase * 10) / 10;
-      trace.contactToMs = Math.round(phase * 10) / 10;
-      if (!trace.wasContact) {
-        trace.contactWindows.push({ fromMs: trace.contactToMs, toMs: trace.contactToMs });
-        if (trace.contactWindows.length > 16) trace.contactWindows.shift();
-      } else trace.contactWindows[trace.contactWindows.length - 1].toMs = trace.contactToMs;
-    }
-    trace.wasContact = contact;
-  }
-
-  function stepClickNativeWalks(at) {
-    const renderer = sceneRenderer(), selfId = inferSelfId(), selection = stepClickSelection();
-    const ids = stepClick.source === "SELF" ? [selfId] : stepClick.source === "SELECTED" ? [selection?.id] :
-      stepClick.source === "PAIR" ? [selfId, selection?.id] : Array.from(renderer?.avatars?.keys?.() || []);
-    for (const id of new Set(ids)) {
-      const avatar = renderer?.avatars?.get?.(id), a = avatar?.currentAnimation;
-      if (!avatar || !a || renderer?.circuitUserWalks?.get?.(id) === a) continue;
-      let type; try { type = a.getType?.(); } catch { continue; }
-      const duration = Number(a.time), elapsed = Number(a.elapsedMs);
-      if (type !== "WalkingAnimation" || !Number.isFinite(duration) || duration <= 0 || duration > 5000 ||
-          !Number.isFinite(elapsed) || elapsed < 0 || elapsed >= duration || a.hasAnimationFinished) continue;
-      const seen = stepClick.nativeSeen.get(avatar), packetAt = stepClick.packetAt.get(id);
-      if (seen?.animation === a) continue;
-      // A packet already anchored this step. Native animations can compress
-      // its visual duration (live: 540 ms for a 600 ms Walk); that does not
-      // change the received step or warrant cancelling/rearming its clicks.
-      if (packetAt != null && (!seen || seen.packetAt !== packetAt) && Math.abs(at - elapsed - packetAt) < 100) {
-        stepClick.nativeSeen.set(avatar, { animation: a, packetAt });
-        continue;
-      }
-      const c = stepClick.clock;
-      const nativeAt = at - elapsed;
-      // A delayed/compressed render of the received step cannot replace its
-      // clock. A distinct newer native step can be shorter than that clock;
-      // waiting for the old duration would lose the entire movement.
-      if (c && c.hook !== "native_animation" && at < c.at + c.durationMs && nativeAt - c.at <= 100) continue;
-      const pos = avatar.position;
-      if (!pos) continue;
-      stepClick.nativeSeen.set(avatar, { animation: a, packetAt });
-      stepClickObserve({ id: 182, fields: [1, id, pos.x, pos.y, pos.z || 0, duration, 0] }, nativeAt, "native_animation");
-    }
-  }
-
-  function stepClickMonitorStart() {
-    if (stepClick.monitor != null || typeof requestAnimationFrame !== "function") return;
-    const sample = () => {
-      stepClick.monitor = null;
-      if (!stepClick.enabled || !state.hubConnected) return;
-      try { stepClickNativeWalks(now()); stepClickSampleCrossing(); stepClickPublish(); } catch {}
-      stepClick.monitor = requestAnimationFrame(sample);
-    };
-    stepClick.monitor = requestAnimationFrame(sample);
-  }
-
-  function stepClickCancel(reason, resetClock = true, preserveEncounter = false) {
-    const trace = stepClick.trace;
-    stepClickFinishCrossing(Boolean(trace && stepClick.clock && now() - stepClick.clock.at >= stepClick.clock.durationMs &&
-      trace.samples >= 2 && now() - trace.lastAt <= Math.max(50, 2 * (trace.resolutionMs || 16))));
-    stepClick.generation++;
-    if (resetClock) {
-      stepClick.clock = null;
-      stepClick.lastCrossing = null;
-      if (!preserveEncounter) stepClick.lastEncounter = null;
-      stepClick.early.clear();
-      stepClick.packetAt.clear();
-      stepClick.nativeSeen = new WeakMap();
-    }
-    stepClick.reason = reason;
-    try { stepClick.worker?.postMessage({ type: "clear" }); } catch {}
-  }
-
-  function stepClickWorkerMain() {
-    let timers = [];
-    const clock = () => performance.timeOrigin + performance.now();
-    self.onmessage = ({ data: msg }) => {
-      for (const timer of timers) clearTimeout(timer);
-      timers = [];
-      if (msg.type !== "arm") return;
-      for (const shot of msg.shots) {
-        const deliver = () => {
-          const left = shot.dueEpoch - clock();
-          if (left > 0) { timers.push(setTimeout(deliver, left)); return; }
-          self.postMessage({ generation: msg.generation, index: shot.index, dueAt: shot.dueAt });
-        };
-        timers.push(setTimeout(deliver, Math.max(0, shot.dueEpoch - clock())));
-      }
-    };
-  }
-
-  function stepClickEnsureWorker() {
-    if (stepClick.worker) return stepClick.worker;
-    const url = URL.createObjectURL(new Blob([`(${stepClickWorkerMain.toString()})();`], { type: "application/javascript" }));
-    try {
-      const worker = new Worker(url);
-      worker.onmessage = (event) => stepClickFire(event.data || {});
-      worker.onerror = () => {
-        stepClick.errors++;
-        stepClickCancel("worker_error");
-        worker.terminate();
-        URL.revokeObjectURL(url);
-        stepClick.worker = null;
-      };
-      stepClick.worker = worker;
-      stepClick.workerUrl = url;
-      return worker;
-    } catch (error) {
-      URL.revokeObjectURL(url);
-      throw error;
-    }
-  }
-
-  function stepClickFire(msg) {
-    const c = stepClick.clock;
-    if (!stepClick.enabled || !state.hubConnected || !c || msg.generation !== stepClick.generation) return;
-    if (c.done.has(msg.index)) return;
-    c.done.add(msg.index);
-    const t = now();
-    const phase = t - c.at;
-    const lateness = t - Number(msg.dueAt);
-    let reason = "";
-    const selection = stepClickSelection();
-    if (!Number.isFinite(lateness) || lateness < 0 || lateness > 8 || phase < 0 || phase >= c.durationMs ||
-        (stepClick.pattern === "CUSTOM" && (phase < stepClick.startMs || phase >= stepClick.endMs))) reason = "late";
-    else if (stepClick.source === "SELECTED" && c.id !== selection?.id) reason = "waiting_step";
-    else if (c.selectedAvatar && c.selectedAvatar !== sceneRenderer()?.avatars?.get?.(selection?.id)) reason = "waiting_step";
-    else if (!selection) reason = "no_selection";
-    else if (selection.ally) reason = "ally";
-    const upper = providerInstance(state.providers.upper);
-    if (!reason && typeof upper?.upperRequest !== "function") reason = "no_sender";
-    let sent = 0;
-    if (!reason) {
-      const before = state.outboundUpperSeq;
-      const previousReason = state.activeFireReason;
-      state.activeFireReason = "STEP_CLICK";
-      try {
-        // One native request per scheduled click. No proximity, facing,
-        // Timing cooldown inference, packet multiplier or automatic target.
-        upper.lastUpperAt = -1e9;
-        upper.upperRequest(selection.id);
-        sent = state.outboundUpperSeq - before;
-        if (!sent) reason = "not_sent";
-      } catch {
-        stepClick.errors++;
-        reason = "send_error";
-      } finally {
-        state.activeFireReason = previousReason;
-      }
-    }
-    stepClick.sent += sent;
-    if (!sent) stepClick.skipped++;
-    stepClick.reason = reason || "ready";
-    stepClick.last = {
-      targetId: selection?.id ?? -1, phaseMs: Math.round(phase * 10) / 10,
-      plannedPhaseMs: Math.round((Number(msg.dueAt) - c.at) * 10) / 10,
-      latencyMs: state.serverPingMs != null ? rttEstimateMs() : null,
-      estimatedLandingMs: state.serverPingMs != null ? Math.round((phase + rttEstimateMs()) * 10) / 10 : null,
-      latenessMs: Math.round(lateness * 10) / 10, sent: sent > 0,
-      reason: reason || "sent", at: Math.round(t)
-    };
-    sendDiagnostic("step_click", { ...stepClick.last, durationMs: c.durationMs, index: msg.index, generation: msg.generation });
-  }
-
-  function stepClickObserve(packet, at, hook) {
-    if (!stepClick.enabled) return;
-    if ((packet.id === 128 && packet.type === 120 && String(packet.fields?.[0]) !== "-1") ||
-        (packet.id === 160 && [125, 126, 129].includes(packet.type))) {
-      stepClickCancel("waiting_step");
-      return;
-    }
-    if (packet.id !== 182 || Number(packet.fields?.[0]) !== 1) return;
-    const id = asId(packet.fields?.[1]);
-    const durationMs = Number(packet.fields?.[5]);
-    if (id == null || id < 0 || !Number.isFinite(durationMs) || durationMs <= 0 || durationMs > 5000) return;
-    const key = JSON.stringify(packet.fields.map(String));
-    if (hook === "socket_worker") {
-      const q = stepClick.early.get(key) || [];
-      q.push(at); stepClick.early.set(key, q);
-      while (stepClick.early.size > 64) stepClick.early.delete(stepClick.early.keys().next().value);
-      if (q.length > 8) q.shift();
-    } else if (hook === "client_dispatch") {
-      const q = stepClick.early.get(key);
-      if (q?.length) {
-        const stamp = q.shift(); if (!q.length) stepClick.early.delete(key);
-        if (at - stamp < 5000) return;
-      }
-    }
-    if (hook !== "native_animation") stepClick.packetAt.set(id, at);
-    const selection = stepClickSelection();
-    if (stepClick.source === "SELF" && id !== inferSelfId()) return;
-    if (stepClick.source === "SELECTED" && id !== selection?.id) return;
-    if (stepClick.source === "PAIR" && id !== inferSelfId() && id !== selection?.id) return;
-    const selectedAvatar = id === selection?.id ? sceneRenderer()?.avatars?.get?.(id) : null;
-    // Only different actors of one delivery group share a reference. A new
-    // step by the same actor remains new, even when it arrives very quickly.
-    const old = stepClick.clock;
-    if (["ROOM", "PAIR"].includes(stepClick.source) && old && at >= old.at &&
-        durationMs === old.durationMs && at - old.at < Math.min(30, durationMs / 3) && !old.ids.has(id)) {
-      old.ids.add(id);
-      if (selectedAvatar) old.selectedAvatar = selectedAvatar;
-      return;
-    }
-    stepClickCancel("ready", false);
-    stepClick.clock = { at, durationMs, id, hook, selectedAvatar, ids: new Set([id]), done: new Set() };
-    if (!(hook === "native_animation" && old?.id === id && Math.abs(old.at - at) < 1)) stepClick.steps++;
-    sendDiagnostic("step_clock", { referenceId:id, clockSource:hook, stepAt:at, durationMs,
-      pattern:stepClick.pattern,momentMs:stepClick.momentMs,
-      startMs:stepClick.startMs,endMs:stepClick.endMs,intervalMs:stepClick.intervalMs,
-      generation:stepClick.generation, previousSource:old?.hook||"", previousDurationMs:old?.durationMs??null,
-      anchorDeltaMs:old?Math.round((at-old.at)*10)/10:null });
-    stepClickPublish(true);
-    if (!stepClick.enabled || !state.hubConnected) return;
-    let phases;
-    if (stepClick.pattern === "CUSTOM") {
-      const end = Math.min(stepClick.endMs, durationMs);
-      const count = Math.max(0, Math.ceil((end - stepClick.startMs) / stepClick.intervalMs));
-      if (count > 256) { stepClick.reason = "interval_too_small"; stepClickPublish(true); return; }
-      phases = Array.from({ length: count }, (_, i) => stepClick.startMs + stepClick.intervalMs * i);
-    } else {
-      phases = stepClick.pattern === "TRIPLE" ? [stepClick.momentMs - 20, stepClick.momentMs, stepClick.momentMs + 20] : [stepClick.momentMs];
-      phases = phases.filter(phase => phase >= 0 && phase < durationMs);
-    }
-    if (!phases.length) { stepClick.reason = "window_outside_step"; stepClickPublish(true); return; }
-    const shots = phases.map((phase, index) => {
-      const dueAt = at + phase;
-      return { index, dueAt, dueEpoch: performance.timeOrigin + dueAt };
-    });
-    try { stepClickEnsureWorker().postMessage({ type: "arm", generation: stepClick.generation, shots }); }
-    catch { stepClick.errors++; stepClick.reason = "worker_error"; }
-  }
-
-  function applyStepClickConfig(msg) {
-    const wasEnabled = stepClick.enabled, oldSource = stepClick.source;
-    const configKey = () => JSON.stringify([stepClick.enabled, stepClick.source, stepClick.pattern, stepClick.momentMs, stepClick.startMs, stepClick.endMs, stepClick.intervalMs]);
-    const previous = configKey();
-    if (typeof msg.enabled === "boolean") stepClick.enabled = msg.enabled;
-    if (["PAIR", "SELF", "SELECTED", "ROOM"].includes(msg.source)) stepClick.source = msg.source;
-    if (["SINGLE", "TRIPLE", "CUSTOM"].includes(msg.pattern)) stepClick.pattern = msg.pattern;
-    else if (["startMs", "endMs", "intervalMs", "clicks"].some(key => msg[key] != null)) stepClick.pattern = "CUSTOM";
-    if (msg.momentMs != null && Number.isFinite(Number(msg.momentMs))) stepClick.momentMs = Math.round(clamp(Number(msg.momentMs), 0, 4999));
-    if (Number.isFinite(Number(msg.startMs))) stepClick.startMs = Math.round(clamp(Number(msg.startMs), 0, 4999));
-    if (Number.isFinite(Number(msg.endMs))) stepClick.endMs = Math.round(clamp(Number(msg.endMs), stepClick.startMs + 1, 5000));
-    stepClick.endMs = Math.max(stepClick.startMs + 1, stepClick.endMs);
-    if (Number.isFinite(Number(msg.intervalMs))) stepClick.intervalMs = Math.round(clamp(Number(msg.intervalMs), 1, 5000));
-    else if (Number.isFinite(Number(msg.clicks))) stepClick.intervalMs = Math.max(1, Math.ceil((stepClick.endMs - stepClick.startMs) / clamp(Number(msg.clicks), 1, 64)));
-    const changed = previous !== configKey();
-    if (changed) stepClickCancel(stepClick.enabled ? "waiting_step" : "off", true,
-      wasEnabled && stepClick.enabled && oldSource === stepClick.source);
-    if (stepClick.enabled) {
-      if (state.timing.enabled) applyTimingConfig({ enabled: false });
-      if (state.pulse.enabled) applyPulseConfig({ enabled: false });
-      state.stateCfg.enabled = false;
-      state.grid.enabled = false;
-      state.moveDelay.enabled = false;
-      state.freeFire.enabled = false;
-      state.autoRing.enabled = false;
-      state.simon.enabled = false;
-      state.exitMode.enabled = false;
-      state.exitMode.punch = false;
-      state.stepWalk.goal = null;
-      clearTimingWorker("step_click");
-      try { stepClickEnsureWorker(); } catch { stepClick.errors++; stepClick.reason = "worker_error"; }
-      stepClickMonitorStart();
-    }
-    if (changed) sendDiagnostic("step_click_config", { enabled: stepClick.enabled, source: stepClick.source, pattern: stepClick.pattern, momentMs: stepClick.momentMs, startMs: stepClick.startMs, endMs: stepClick.endMs, intervalMs: stepClick.intervalMs });
-    sendState();
-  }
-
   function lateralAdjacent(ax, ay, bx, by) {
     const dx = (bx | 0) - (ax | 0);
     const dy = (by | 0) - (ay | 0);
@@ -1062,98 +616,14 @@
     return state.actors.get(id | 0) || null;
   }
 
-  const actorAvatars = new Map();
-  const actorAbsent = new Set();
-  const actorStepVersions = new Map();
-  const pendingRotations = new Map(); // native RAF placement -> actor revision
-  function rotationKey(id, x, y, z) {
-    return JSON.stringify([id, Number(x), Number(y), Number(z)]);
-  }
-
-  function currentTargetAvatar(id, expected) {
-    const avatar = sceneRenderer()?.avatars?.get?.(id);
-    return avatar && !avatar.__departing && !avatar._removed &&
-      (!expected || avatar === expected) ? avatar : null;
-  }
-
-  function timingSelectedOnly() {
-    return state.timing.enabled && state.timing.targetMode === "SELECTED";
-  }
-
-  function freshTimingSelection() {
-    let ficha;
-    try { ficha = providerInstance(state.providers.selection)?.avatarFichado; } catch { return null; }
-    if (ficha?.userSpaceId == null) return null;
-    const id = asId(ficha?.userSpaceId);
-    const selfId = inferSelfId();
-    const avatar = id == null ? null : currentTargetAvatar(id);
-    if (selfId < 0 || id == null || id < 0 || id === selfId || !avatar || ficha !== avatar || isStale(id) ||
-        state.tickEngine.out.has(id) || isAlly(id)) return null;
-    return { id, avatar, name: String(avatar.avatarInfo?.username || "") };
-  }
-
-  function timingTargetAllowed(id, avatar) {
-    if (!timingSelectedOnly()) return true;
-    const selection = freshTimingSelection();
-    return Boolean(selection && selection.id === id && (!avatar || selection.avatar === avatar));
-  }
-
-  function refreshActorIdentities() {
-    const renderer = sceneRenderer();
-    if (!(renderer?.avatars instanceof Map)) return;
-    for (const [id, avatar] of renderer?.avatars || []) {
-      const previous = actorAvatars.get(id);
-      if (!previous || previous === avatar) continue;
-      const E = state.tickEngine;
-      const account = Number(avatar?.avatarInfo?.id);
-      const sameAccount = account > 0 && account === Number(previous?.avatarInfo?.id) &&
-        !previous.__departing && !previous._removed && !actorAbsent.has(id);
-      const retainedLock = sameAccount ? E.lockUntil.get(id) : null;
-      state.actors.delete(id);
-      actorAvatars.set(id, avatar);
-      actorAbsent.delete(id);
-      for (const map of [E.runlock, E.cont, state.attention, state.cocoGuard.pending]) map.delete(id);
-      if (!sameAccount) {
-        for (const map of [E.lockUntil, E.down, E.mutedUntil, E.silentCount]) map.delete(id);
-        E.silentPending = E.silentPending.filter((p) => p.id !== id);
-      }
-      state.react.lateral.delete(id);
-      // A renderer rebuild does not revive a Ring spectator. Outside Ring,
-      // the new incarnation must not inherit the previous occupant's death.
-      if (renderer.spaceModel?.name && renderer.spaceModel.name !== "mGame2") {
-        E.out.delete(id);
-        E.outGone.delete(id);
-        E.outAvatars.delete(id);
-        if (id === inferSelfId()) { E.selfOut = false; E.pausedUntil = 0; }
-      }
-      tickPreflightInvalidate();
-      if (retainedLock > now()) runlockArm(id, retainedLock);
-    }
-  }
-
   function ensureActorFromRenderer(id) {
-    refreshActorIdentities();
-    const avatar = sceneRenderer()?.avatars?.get?.(id);
-    if (!avatar || avatar.__departing || avatar._removed) {
-      state.actors.delete(id | 0);
-      actorAbsent.add(id | 0);
-      // Keep the old native identity until the room resets: a reused ID must
-      // be recognized even when a roster poll observed the gap between users.
-      return null;
-    }
     let actor = actorFor(id);
-    const previousAvatar = actorAvatars.get(id | 0);
-    if (previousAvatar && previousAvatar !== avatar) {
-      state.actors.delete(id | 0);
-      actor = null;
-    }
-    actorAvatars.set(id | 0, avatar);
     if (actor) {
       // Placed on a tile without a step (round start, a teleport): the game's
       // own position wins once no step of ours is in flight (26/09: at round
       // start the ring-board kept walking us to the tile we already stood on).
       if (now() - (actor.startAt || 0) > (actor.stepMs || 600) + 80) {
-        const pos = avatar.position;
+        const pos = providerInstance(state.providers.renderer)?.avatars?.get?.(id)?.position;
         const x = Number(pos?.x);
         const y = Number(pos?.y);
         if (Number.isFinite(x) && Number.isFinite(y) && ((x | 0) !== actor.toX || (y | 0) !== actor.toY)) {
@@ -1167,6 +637,9 @@
       }
       return actor;
     }
+    const renderer = providerInstance(state.providers.renderer);
+    const avatar = renderer?.avatars?.get?.(id);
+    if (!avatar) return null;
     const pos = avatar.position || {};
     const x = Number(pos.x) | 0;
     const y = Number(pos.y) | 0;
@@ -1517,8 +990,6 @@
       serverPingMs: state.serverPingMs,
       players: collectPlayers(),
       tick: tickHubSummary(),
-      simon: simonSummary(),
-      stepClick: stepClickSummary(),
       exit: exitSummary(),
       ts: Math.round(now())
     });
@@ -1549,7 +1020,6 @@
       selfId: inferSelfId(),
       serverPingMs: state.serverPingMs,
       punchPackets: state.punchPackets,
-      punchIsolation: { enabled: state.punchIsolation.enabled, phaseMs: state.punchIsolation.phaseMs },
       timing: {
         ...t,
         enabled: timingEnabled,
@@ -1997,14 +1467,6 @@
   }
 
   function notePunch(targetId, reason) {
-    // Report only (Hub "Último disparo de Timing"): no decision reads it.
-    if (reason && !["native", "CTRL", "manual", "STEP_CLICK"].includes(reason)) {
-      const changed = state.lastAutomaticPunch?.targetId !== (targetId | 0);
-      state.lastAutomaticPunch = { targetId: targetId | 0, reason, at: Math.round(now()) };
-      // The request is already on the socket: tell the Hub now instead of with
-      // the next state (250-700 ms), so its target field follows the engine.
-      if (changed) sendToHub({ type: "timing_target", targetId: targetId | 0, reason });
-    }
     const self = ensureActorFromRenderer(inferSelfId());
     const target = ensureActorFromRenderer(targetId);
     state.lastPunch.seq++;
@@ -2016,58 +1478,17 @@
     state.lastPunch.selfY = self ? self.toY : -999;
     state.lastPunch.targetX = target ? target.toX : -999;
     state.lastPunch.targetY = target ? target.toY : -999;
-    // Manual game clicks also compete with engine requests for an untagged
-    // reply. The central firePunch path records the other engine reasons.
-    if (["native", "CTRL", "manual"].includes(reason)) {
-      const E = state.tickEngine;
-      E.allShots.push({ at: state.lastPunch.at, targetId: targetId | 0, reason,
-        lead: rttEstimateMs() + E.corr, seq: state.seq });
-      while (E.allShots.length > 40) E.allShots.shift();
-    }
   }
 
   // options.bypassThrottle: reset only the client's local 100 ms guard; the
   // server still decides what it accepts.
   function firePunch(targetId, reason, options) {
-    // The punch-isolation profile limits Timing's own extra shots.
-    if (state.punchIsolation.enabled && !["CTRL", "manual", "TICK_BLIND", "TICK_REACT"].includes(reason)) {
-      state.lastFireResult = { targetId: asId(targetId) ?? -1, reason, calls: 0, sentCount: 0, errors: 0,
-        held: "punch_isolation", ts: now() };
-      sendDiagnostic("fire_attempt", state.lastFireResult);
-      return false;
-    }
-    if (stepClick.enabled && !["CTRL", "manual"].includes(reason)) return false;
-    const selectedOnly = timingSelectedOnly();
-    const selection = selectedOnly ? freshTimingSelection() : null;
     let id = asId(targetId);
-    if ((id == null || id < 0) && ["CTRL", "manual"].includes(reason) && !selectedOnly) id = selectedId();
+    if (id == null || id < 0) id = selectedId();
     if (id == null || id < 0 || id === inferSelfId()) return false;
-    // Board commands also arrive as CTRL. Every Hub/motor request obeys the
-    // current native ficha; a cleared or recycled selection has no fallback.
-    if (selectedOnly && (!selection || selection.id !== id || (options?.avatar && options.avatar !== selection.avatar))) {
-      state.lastFireResult = { targetId: id, reason, calls: 0, sentCount: 0, errors: 0,
-        held: selection ? "selection_changed" : "no_selection", ts: now() };
-      sendDiagnostic("fire_attempt", state.lastFireResult);
-      return false;
-    }
-    if (!["CTRL", "manual"].includes(reason) || selectedOnly) {
-      refreshEliminated();
-      const avatar = sceneRenderer()?.avatars?.get?.(id);
-      const held = state.tickEngine.out.has(id) ? "target_out" :
-        !currentTargetAvatar(id, options?.avatar) ? "target_gone" : isStale(id) ? "target_stale" : null;
-      if (held) {
-        state.stats.targetHeld = (state.stats.targetHeld || 0) + 1;
-        state.lastFireResult = { targetId: id, reason, calls: 0, sentCount: 0, errors: 0, held, ts: now() };
-        sendDiagnostic("fire_attempt", state.lastFireResult);
-        return false;
-      }
-    }
     if (isAlly(id)) { state.allies.blocked++; return false; }
-    // Simon Dice rooms: no automatic punches (they hit the others mid-game).
-    if (!["CTRL", "manual"].includes(reason) && simonRoomActive()) { state.simon.punchesHeld++; return false; }
     const upper = providerInstance(state.providers.upper);
     if (!upper || typeof upper.upperRequest !== "function") return false;
-    noThrottleInstall();
     // Engine shots that would land inside our coco are ignored by the server.
     if (!["CTRL", "manual"].includes(reason) && state.tickEngine.selfOut) {
       state.stats.outHeld = (state.stats.outHeld || 0) + 1;
@@ -2092,8 +1513,7 @@
     // Engine shots go out as a burst 1 ms apart (26/09, user's call: test whether
     // near-simultaneous requests each get their own hold; measure our holds).
     // options.packets forces the count (27/09: the unlock click goes out alone).
-    const packets = state.punchIsolation.enabled && !["CTRL", "manual"].includes(reason) ? 1 :
-      options?.packets ? clamp(options.packets, 1, 8) : bypass ? clamp(state.tickBurst, 1, TICK_BURST_MAX) : clamp(state.punchPackets, 1, 8);
+    const packets = options?.packets ? clamp(options.packets, 1, 8) : bypass ? clamp(state.tickBurst, 1, TICK_BURST_MAX) : clamp(state.punchPackets, 1, 8);
     const before = state.outboundUpperSeq;
     const previousReason = state.activeFireReason;
     state.stats.fireAttempts++;
@@ -2102,7 +1522,6 @@
     try {
       for (let i = 0; i < packets; i++) {
         if (i > 0) spinUntil(now() + TICK_BURST_GAP_MS);
-        if (selectedOnly && (!timingSelectedOnly() || !timingTargetAllowed(id, selection.avatar))) break;
         try {
           if (bypass) upper.lastUpperAt = -1e9;
           upper.upperRequest(id);
@@ -2124,16 +1543,9 @@
       const t = now();
       const inGap = t - (E.silentLastClickAt ?? -1e9) < SILENT_GAP_MS || t - (E.silentLastReplyAt ?? -1e9) < SILENT_GAP_MS;
       E.silentLastClickAt = t;
-      if (!inGap && !["CTRL", "manual", "TICK_DUAL", "TICK_SWEEP", "TICK_REPEAT", "TICK_RETRY", "REACH_PROBE", "RETRY"].includes(reason)) {
+      if (!inGap && !["CTRL", "manual", "TICK_DUAL", "TICK_SWEEP", "TICK_REPEAT", "REACH_PROBE", "RETRY"].includes(reason)) {
         E.silentPending.push({ id, at: t });
         while (E.silentPending.length > 20) E.silentPending.shift();
-      }
-      // Common registry of every punch (28/09): a 144 names no request, so the
-      // tick calibration must know when another engine's could own it.
-      if (!["native", "CTRL", "manual"].includes(reason || "CTRL")) {
-        E.allShots.push({ at: t, targetId: id, reason: reason || "CTRL",
-          lead: rttEstimateMs() + E.corr, seq: state.seq });
-        while (E.allShots.length > 40) E.allShots.shift();
       }
     }
     state.lastFireResult = { targetId: id, reason: reason || "CTRL", calls: packets, sentCount, errors, ts: now() };
@@ -2236,7 +1648,7 @@
 
   function stepWalkIntercept(packet) {
     const W = state.stepWalk;
-    if (stepClick.enabled || !W.enabled || W.internal) return false;
+    if (!W.enabled || W.internal) return false;
     const pk = coercePacket(packet);
     if (!pk || pk.id !== 182 || (pk.type || 0) !== 0) return false;
     const dest = String(pk.fields?.[0] || "");
@@ -2257,11 +1669,7 @@
     }
     W.goal = goal;
     W.retries = 0;
-    if (stepWalkSend(next, from)) return true;
-    // The native full-path request will run. Do not keep a goal whose first
-    // replacement was never sent and resume it on an unrelated incoming step.
-    W.goal = null;
-    return false;
+    return stepWalkSend(next, from);
   }
 
   function stepWalkSend(tile, from) {
@@ -2292,7 +1700,7 @@
   // Our step arrived: ask for the next tile now, well before the next tick.
   function stepWalkOnSelfStep(x, y) {
     const W = state.stepWalk;
-    if (stepClick.enabled || !W.enabled || !W.goal) return;
+    if (!W.enabled || !W.goal) return;
     if (state.tickEngine.selfOut || (x === W.goal.x && y === W.goal.y)) {
       W.goal = null;
       return;
@@ -2303,14 +1711,14 @@
       return;
     }
     W.retries = 0;
-    if (!stepWalkSend(next, { x, y })) stepWalkGiveUp();
+    stepWalkSend(next, { x, y });
   }
 
   // A step that never came (tile taken, request lost): retry once from where
   // we are, then hand the whole walk to the server.
   function stepWalkWatchdog(sentAt) {
     const W = state.stepWalk;
-    if (stepClick.enabled || !W.goal || W.sentAt !== sentAt) return;
+    if (!W.goal || W.sentAt !== sentAt) return;
     const me = ensureActorFromRenderer(inferSelfId());
     if (!me) return;
     const from = { x: me.toX | 0, y: me.toY | 0 };
@@ -2320,7 +1728,10 @@
     }
     if (W.retries++ < 1) {
       const next = stepWalkNext(from, W.goal);
-      if (next && stepWalkSend(next, from)) return;
+      if (next) {
+        stepWalkSend(next, from);
+        return;
+      }
     }
     stepWalkGiveUp();
   }
@@ -2403,7 +1814,6 @@
   }
 
   function softResetCombat(reason) {
-    state.lastAutomaticPunch = null;
     state.stepWalk.goal = null;
     state.burstPlans = [];
     state.gridPlan = null;
@@ -2462,8 +1872,8 @@
     if (!actor || contFlag !== 0) return;
     const selfId = inferSelfId();
     if (selfId < 0 || movedId === selfId) return;
-    const targetId = movedId;
-    if (state.tickEngine.out.has(targetId) || isAlly(targetId) || isStale(targetId)) return;
+    const targetId = selectedId();
+    if (targetId < 0 || targetId !== movedId) return;
     const self = ensureActorFromRenderer(selfId);
     if (!self) return;
     if (!lateralAdjacent(self.toX, self.toY, actor.toX, actor.toY)) return;
@@ -2501,7 +1911,7 @@
       state.landingC.wasContact = false;
       return;
     }
-    const target = threatPick(now(), 0.99)?.id ?? -1;
+    const target = selectedId();
     if (target < 0 || target === inferSelfId()) {
       state.landingC.wasContact = false;
       return;
@@ -2512,14 +1922,12 @@
     }
     const t = Math.round(now());
     const fresh = !state.landingC.wasContact || target !== state.landingC.lastTarget;
-    let sent = state.landingC.wasContact && target === state.landingC.lastTarget;
     if (fresh && t - state.lastPunch.at >= 120) {
       const ok = firePunch(target, "LANDING_CONTACT");
-      sent = ok;
       state.landingC.lastFireAt = t;
       sendTimingMetric("fire", "LANDING", target, 0, 0, 0, 0, 1, ok, "contact", {});
     }
-    state.landingC.wasContact = sent;
+    state.landingC.wasContact = true;
     state.landingC.lastTarget = target;
   }
 
@@ -2705,10 +2113,6 @@
       state.workerPlans.delete(planId);
       return;
     }
-    if (!currentTargetAvatar(plan.targetId, plan.avatar)) {
-      state.workerPlans.delete(planId);
-      return;
-    }
 
     const t = now();
     const due = Number(msg.dueAt);
@@ -2832,7 +2236,6 @@
     state.workerPlans.set(planId, {
       seq,
       targetId,
-      avatar: currentTargetAvatar(targetId),
       stepAt,
       stepMs,
       leadMs,
@@ -2976,7 +2379,7 @@
       state.contactEdge.wasContact = false;
       return;
     }
-    const target = threatPick(now(), 0.99)?.id ?? -1;
+    const target = selectedId();
     if (target < 0 || target === inferSelfId()) {
       state.contactEdge.wasContact = false;
       return;
@@ -2987,14 +2390,12 @@
     }
     const t = Math.round(now());
     const becoming = !state.contactEdge.wasContact || target !== state.contactEdge.lastTarget;
-    let sent = state.contactEdge.wasContact && target === state.contactEdge.lastTarget;
     if (becoming && (target !== state.contactEdge.lastTarget || t - state.contactEdge.lastFireAt >= 12)) {
-      const ok = firePunch(target, "CONTACT_EDGE");
-      sent = ok;
+      firePunch(target, "CONTACT_EDGE");
       state.contactEdge.lastFireAt = t;
-      sendTimingMetric("fire", "STEP", target, 0, 0, 0, 0, 1, ok, "contact-edge", {});
+      sendTimingMetric("fire", "STEP", target, 0, 0, 0, 0, 1, true, "contact-edge", {});
     }
-    state.contactEdge.wasContact = sent;
+    state.contactEdge.wasContact = true;
     state.contactEdge.lastTarget = target;
     state.contactEdge.lastAxis = "PUNCH_SIDE";
   }
@@ -3183,28 +2584,31 @@
   function scheduleStatePunch(movedId, reason) {
     if (!timingModeActive() || timingSourceMode() !== "STATE") return;
     if (!state.stateCfg.enabled && timingSourceMode() !== "STATE") return;
-    const key = `${movedId}:${reason}`;
+    const sel = selectedId();
+    if (sel < 0) return;
+    const selfId = inferSelfId();
+    if (movedId !== sel && movedId !== selfId) {
+      // enemy move: also arm when any non-self moves toward selected combat
+      if (movedId === selfId) return;
+    }
+    const key = `${sel}:${movedId}:${reason}`;
     const t = Math.round(now());
     if (key === state.stateArmKey && t - state.stateArmAt < 80) return;
     state.stateArmKey = key;
     state.stateArmAt = t;
     const delay = Math.max(0, state.stateCfg.delay | 0);
-    const seq = state.seq;
-    const arm = state.stateArmSerial = (state.stateArmSerial || 0) + 1;
-    const sel = threatPick(t + delay + rttEstimateMs(), 0.05)?.id ?? -1;
     sendTimingMetric("arm", "STATE", sel, delay, -1, 0, 0, 1, true, reason || "move", {
       actorId: movedId,
       delay
     });
     setTimeout(() => {
-      if (!timingModeActive() || timingSourceMode() !== "STATE" || state.seq !== seq || state.stateArmSerial !== arm) return;
+      if (!timingModeActive() || timingSourceMode() !== "STATE") return;
       const firedAt = now();
-      const target = threatPick(firedAt + rttEstimateMs(), 0.05)?.id ?? -1;
-      const ok = firePunch(target, "STATE");
+      const ok = firePunch(sel, "STATE");
       sendTimingMetric(
         "fire",
         "STATE",
-        target,
+        sel,
         delay,
         Math.round(firedAt - t),
         Math.round(firedAt - t - delay),
@@ -3226,8 +2630,7 @@
     let bestDist = 999;
     for (const [rawId] of renderer.avatars) {
       const id = asId(rawId);
-      if (id == null || id === inferSelfId() || state.tickEngine.out.has(id) || isMuted(id) ||
-          isAlly(id) || isStale(id) || rivalLocked(id, now() + rttEstimateMs())) continue;
+      if (id == null || id === inferSelfId()) continue;
       const actor = ensureActorFromRenderer(id);
       if (!actor) continue;
       if (state.pulse.contactOnly && !lateralAdjacent(self.toX, self.toY, actor.toX, actor.toY)) {
@@ -3243,7 +2646,7 @@
   }
 
   function pulseTargetId() {
-    if (!state.pulse.autoTarget) {
+    if (state.pulse.requireSelected || !state.pulse.autoTarget) {
       const sel = selectedId();
       if (sel >= 0) {
         state.pulse.autoTargetId = sel;
@@ -3316,16 +2719,15 @@
   // is known from a rival's first visible step.
   const ORIENT_DIR = { 1: [1, 1], 2: [-1, -1], 3: [1, -1], 4: [-1, 1], 5: [1, 0], 6: [0, -1], 7: [0, 1], 8: [-1, 0] };
 
-  function noteActorStep(movedId, x, y, stepMs, orient, arrivalAt) {
+  function noteActorStep(movedId, x, y, stepMs, orient) {
     const id = asId(movedId);
     if (id == null) return null;
-    actorStepVersions.set(id, (actorStepVersions.get(id) || 0) + 1);
     const prev = state.actors.get(id);
     const known = prev && Math.abs(prev.toX - x) <= 1 && Math.abs(prev.toY - y) <= 1;
     const od = ORIENT_DIR[Number(orient) | 0];
     const fromX = known ? prev.toX : od ? x - od[0] : x;
     const fromY = known ? prev.toY : od ? y - od[1] : y;
-    const startAt = Math.round(Number.isFinite(arrivalAt) ? arrivalAt : now());
+    const startAt = Math.round(now());
     const dur = stepMs | 0;
     const actor = {
       fromX,
@@ -3515,21 +2917,6 @@
   // if the first click was valid, the server simply ignores it.
   const SWEEP_MIN_SCORE = 0.05;
   const TICK_BLIND_MIN_P = 0.0005;
-  // 01/10: the July model gives a STANDING rival one diagonal step from contact
-  // (|dx|,|dy| = 1 and 2) P = 0 - measured on a crowd that rarely stepped in.
-  // The smart ones exploit it: they stand one step out and step+click on the
-  // tick they choose (7 deaths today: the killer was the best candidate at P=0).
-  // Their punch processes at T+60-90 (held train), our tick click at T+10 beats
-  // it - but only if we actually fire. The floor makes them a real candidate.
-  // 26/10: "one step" is one king move onto a contact tile (1,1)/(-1,-1). The
-  // old test (|dx|,|dy| both 2 or 1-and-2) left out (2,0)/(0,2) - 35% of the
-  // 5354 Ring entries in the corpus - and floored (2,-1)/(1,-2), 0.1%: the
-  // blind click went to a rival that could not step in.
-  const THREAT_STEP_FLOOR = 0.03;
-  function oneStepFromContact(dx, dy) {
-    if ((dx === 0 && dy === 0) || (dx === dy && Math.abs(dx) === 1)) return false;
-    return Math.max(Math.abs(dx - 1), Math.abs(dy - 1)) <= 1 || Math.max(Math.abs(dx + 1), Math.abs(dy + 1)) <= 1;
-  }
   const LOW_PING_MS = 60;
   const LOW_PING_BLIND_MIN = 0.9; // a standing rival already beside us: 0.975
   function lowPingActive() {
@@ -3542,7 +2929,7 @@
   const WALKER_BONUS = 1.3; // threatPick: a walking rival is hit ~40 ms faster
   const SWEEP_EXTRA_MS = 4;
   const TICK_BURST_GAP_MS = 1;
-  const TICK_BURST_MAX = 100; // Hub 0.1.25: "Clicks por disparo" 1-100
+  const TICK_BURST_MAX = 20;
   // The server gap starts at the burst's last request.
   const burstSpanMs = () => (clamp(state.tickBurst, 1, TICK_BURST_MAX) - 1) * TICK_BURST_GAP_MS;
   let HIT_LOCK_MS = 14000; // hit_lock_config (tests) can change it
@@ -3574,7 +2961,6 @@
     E.armedTick = null;
     E.plans.clear();
     E.shots = [];
-    E.allShots = [];
     E.cont.clear();
     E.down.clear();
     E.selfDest = null;
@@ -3592,27 +2978,7 @@
     E.tickTargets2.clear();
     E.out.clear();
     E.outGone.clear();
-    E.outAvatars.clear();
     E.selfOut = false;
-    E.selfLockEnd = 0;
-    E.selfLockKind = "";
-    E.pausedUntil = 0;
-    E.lockUntil.clear();
-    E.runlock.clear();
-    E.unlock.end = 0;
-    state.cocoGuard.upperEnd = 0;
-    state.cocoGuard.selfEnd = 0;
-    state.cocoGuard.pending.clear();
-    state.cocoGuard.thrown = [];
-    state.react.lateral.clear();
-    state.react.lastKey = "";
-    if (state.react.fallback?.timer) clearTimeout(state.react.fallback.timer);
-    state.react.fallback = null;
-    if (reason === "room" || reason === "gong") {
-      state.exitMode.self = null;
-      state.exitMode.plan = null;
-      state.exitMode.cocoByAccount.clear();
-    }
     E.silentPending = [];
     E.silentCount.clear();
     E.mutedUntil.clear();
@@ -3665,7 +3031,6 @@
     if (E.walkReqs.length > 8) E.walkReqs.shift();
     E.selfDest = { x, y };
     E.selfWalkAt = t;
-    tickPreflightInvalidate();
   }
 
   function tickProjectSelf(actor, tickLocal) {
@@ -3706,9 +3071,6 @@
     const selfActor = ensureActorFromRenderer(selfId);
     if (!selfActor) return null;
     const t = now();
-    const selectedOnly = timingSelectedOnly();
-    const selection = selectedOnly ? freshTimingSelection() : null;
-    if (selectedOnly && !selection) return null;
     let tickBetween = false;
     let nextTick = null;
     if (E.origin != null && E.batches.length >= 1) {
@@ -3727,7 +3089,7 @@
     let second = null;
     for (const rawId of renderer?.avatars?.keys?.() || []) {
       const id = asId(rawId);
-      if (id == null || id === selfId || id === exclude || (selectedOnly && id !== selection.id) || E.out.has(id) || (!selectedOnly && isMuted(id)) || isAlly(id) || isStale(id)) continue;
+      if (id == null || id === selfId || id === exclude || E.out.has(id) || isMuted(id) || isAlly(id) || isStale(id)) continue;
       if ((E.down.get(id) || 0) > t) continue;
       const a = ensureActorFromRenderer(id);
       if (!a) continue;
@@ -3745,8 +3107,6 @@
         } else {
           const movedLast = a.startAt >= E.lastBatchAt - 30 && (a.dirX || a.dirY);
           q = contactProb(dx, dy, movedLast ? DIR_ORIENT[`${a.dirX},${a.dirY}`] || 0 : 0);
-          // One diagonal step from contact is one step from killing us.
-          if (q < THREAT_STEP_FLOOR && oneStepFromContact(dx, dy)) q = THREAT_STEP_FLOOR;
         }
         q *= spot.w;
         if (q > p) { p = q; dist = d; from = spot; }
@@ -3759,8 +3119,7 @@
       // some near 0 (July, all players: median 139-165 vs 92-100 after contact).
       const walking = a.startAt >= E.lastBatchAt - 30 && Boolean(a.dirX || a.dirY);
       const rank = p * 1000 * (walking ? WALKER_BONUS : 1) - dist;
-      const cand = { id, score: Number(p.toFixed(3)), dist, rank, walking, face: faceSide(from.x, from.y, a.toX, a.toY),
-        ...(selectedOnly ? { avatar: selection.avatar } : {}) };
+      const cand = { id, score: Number(p.toFixed(3)), dist, rank, walking, face: faceSide(from.x, from.y, a.toX, a.toY) };
       if (!best || rank > best.rank) {
         second = best;
         best = cand;
@@ -3828,14 +3187,11 @@
   }
 
   function reactSchedule() {
-    if (state.punchIsolation.enabled) return;
     // One check per batch; a lost timer never blocks the next one.
     if (state.react.pending && now() - state.react.pendingAt < 50) return;
     state.react.pending = true;
     state.react.pendingAt = now();
-    const seq = state.seq;
     setTimeout(() => {
-      if (state.seq !== seq) return;
       state.react.pending = false;
       const bounced = state.tickEngine.pendingBounce;
       if (bounced && bounced.n === state.tickEngine.lastBatchTick) {
@@ -3858,7 +3214,7 @@
     let best = null;
     for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
       const id = asId(rawId);
-      if (id == null || id === selfId || !timingTargetAllowed(id) || E.out.has(id) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || isStale(id)) continue;
+      if (id == null || id === selfId || E.out.has(id) || isMuted(id) || isAlly(id) || isStale(id)) continue;
       if ((E.down.get(id) || 0) > t) continue;
       const a = ensureActorFromRenderer(id);
       if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
@@ -3873,88 +3229,35 @@
   }
 
   function reactCheck() {
-    if (state.punchIsolation.enabled) return;
     if (!tickEnabled() || !state.timing.tick.reactive || state.tickEngine.selfOut) return;
-    if (selfLocked(now() + rttEstimateMs() + state.tickEngine.corr) &&
-        state.tickEngine.selfLockEnd - now() > 600) {
+    if (selfLocked(now() + rttEstimateMs() + state.tickEngine.corr)) {
       reactPick(true); // keep the contact set current for when the lock ends
       return;
     }
-    const previous = state.react.lateral;
     const pick = reactPick(true);
     if (!pick) return;
     const E = state.tickEngine;
-    // Keep the native identities of every fresh sibling before reactPick's
-    // contact set consumes them. A wait must not discard all but the first ID.
-    const candidates = new Map();
-    for (const id of state.react.lateral) {
-      if (!previous.has(id)) candidates.set(id, sceneRenderer()?.avatars?.get?.(id));
-    }
-    const active = state.react.fallback;
-    if (active && !active.done && active.seq === state.seq && active.batchAt === E.lastBatchAt) {
-      for (const [id, avatar] of candidates) active.candidates.set(id, avatar);
-      return;
-    }
+    // This tick's click already went to it and lands after the switch.
+    if (E.lastBatchTick != null && (E.tickTargets.get(E.lastBatchTick) === pick.id || E.tickTargets2.get(E.lastBatchTick) === pick.id)) return;
     const key = `${pick.id}:${Math.round(E.lastBatchAt)}`;
     if (state.react.lastKey === key) return; // one reaction per rival and batch
     state.react.lastKey = key;
-    if (state.react.fallback?.timer) clearTimeout(state.react.fallback.timer);
-    const pending = { key, seq: state.seq, candidates, batchAt: E.lastBatchAt, bornAt: now(),
-      expiresAt: now() + TICK_MS, timer: null, done: false };
-    state.react.fallback = pending;
-    const cancel = (held) => {
-      pending.done = true;
-      sendDiagnostic("react_fallback", { targetId: pick.id, ok: false, held, batchAt: pending.batchAt });
-    };
     const fire = () => {
-      if (pending.done || state.react.fallback !== pending) return;
-      if (!tickEnabled() || !state.timing.tick.reactive || E.selfOut || state.seq !== pending.seq ||
-          now() > pending.expiresAt || E.lastBatchAt !== pending.batchAt) {
-        cancel("inactive_or_stale");
-        return;
-      }
       // Still in contact and still in play when the shot leaves.
       const me = ensureActorFromRenderer(inferSelfId());
-      if (!me) {
-        cancel("contact_lost");
-        return;
-      }
-      const lead = rttEstimateMs() + E.corr;
-      const coco = state.exitMode.self;
-      const free = Math.max((state.lastPunch.at ?? -1e9) + GUARD_LOCK_MS + 1,
-        E.selfLockEnd + UNLOCK_MARGIN_MS - lead,
-        coco ? coco.endAt + state.exitMode.U + 6 - lead : -1e9);
-      if (now() < free) {
-        if (free > pending.expiresAt) { cancel("lock_past_step"); return; }
-        pending.timer = setTimeout(fire, Math.ceil(free - now()));
-        return;
-      }
-      // Revalidate at the actual dispatch time. Prefer the original rival if
-      // still eligible; otherwise use a fresh sibling from this same batch.
-      let chosen = null;
-      for (const [id, avatar] of pending.candidates) {
-        if (!avatar || !timingTargetAllowed(id, avatar) || sceneRenderer()?.avatars?.get?.(id) !== avatar || E.out.has(id) ||
-            isMuted(id) || isAlly(id) || isStale(id) || (E.down.get(id) || 0) > now() ||
-            rivalLocked(id, now() + lead)) continue;
-        const a = ensureActorFromRenderer(id);
-        if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
-        const rank = id === pick.id ? 2 : a.startAt >= pending.batchAt - 30 ? 1 : 0;
-        if (!chosen || rank > chosen.rank) chosen = { id, rank, a };
-      }
-      if (!chosen) { cancel("no_eligible_contact"); return; }
-      pending.done = true;
-      const { id, a } = chosen;
+      const a = ensureActorFromRenderer(pick.id);
+      if (!me || !a || E.out.has(pick.id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
       if (state.timing.tick.single) faceBeforeClick(faceSide(me.toX, me.toY, a.toX, a.toY));
-      // A speculative dispatch does not prove a hit. Keep its contact fallback.
-      const speculative = E.lastBatchTick != null &&
-        (E.tickTargets.get(E.lastBatchTick) === id || E.tickTargets2.get(E.lastBatchTick) === id);
-      const reason = speculative ? "REACT_FALLBACK" : "REACT";
-      const ok = firePunch(id, reason, { bypassThrottle: true, packets: 1, avatar: pending.candidates.get(id) });
-      if (ok) state.react.fired++;
-      sendDiagnostic("react_fallback", { targetId: id, originalTargetId: pick.id, candidates: pending.candidates.size,
-        waitMs: Math.round(now() - pending.bornAt), reason, ok, batchAt: pending.batchAt });
+      if (firePunch(pick.id, "REACT", { bypassThrottle: true })) state.react.fired++;
     };
-    fire();
+    const t = now();
+    const free = (state.lastPunch.at || -1e9) + GUARD_LOCK_MS + 1;
+    if (t >= free) {
+      fire();
+    } else {
+      setTimeout(fire, free - t);
+      setTimeout(fire, free - t + 6);
+    }
   }
 
   // Target for a TICK shot landing at `landing`, decided at send time. Before
@@ -3964,7 +3267,6 @@
     const cfg = state.timing.tick;
     const selfId = inferSelfId();
     if (selfId == null || selfId < 0 || !ensureActorFromRenderer(selfId)) return { skip: "no_self" };
-    if (timingSelectedOnly() && !freshTimingSelection()) return { skip: "no_selection" };
     const known = t - (E.origin + n * TICK_MS) > 30;
     if (known && !cfg.reactive) return { skip: "reactive_off" };
     if (!known && !cfg.blind) return { skip: "blind_off" };
@@ -3979,8 +3281,7 @@
     // whose best candidate WAS the rival, at p < 0.005 (a standing rival one step
     // from our contact tile: the July model says 0.001-0.004, September says ~5.5%);
     // they went 48-40 on the reaction alone. Only ticks with no candidate at 0.02
-    // change (the pick order does not). Silence alone cannot exclude a native
-    // Ring player; the protection/NPC filter remains outside that case.
+    // change (the pick order does not); a silent id gets muted after 3 clicks.
     const pick = threatPick(landing, known ? 0.99 : cfg.single ? TICK_BLIND_MIN_P : 0.2);
     if (!pick) return { skip: known ? "no_contact" : "sin_amenaza" };
     // Low ping: do not guess; the reaction to the batch lands in time, at the right id.
@@ -3993,136 +3294,8 @@
     const two = pick.second;
     // Off: 25/09 live, the second click was never answered in 14 ties (the
     // server ignores a request 3 ms after another).
-    const dual = !state.punchIsolation.enabled && DUAL_TIE && !known && cfg.single && two && two.score >= 0.1 && two.score >= pick.score * 0.5 && pick.score < 0.9 ? two : null;
-    return { id: pick.id, reactive: known, score: pick.score, face: pick.face, dual,
-      ...(pick.avatar ? { avatar: pick.avatar } : {}) };
-  }
-
-  // 01/10: the tick decision reads only what the batch already delivered, so it
-  // runs when the batch settles (setTimeout 0 after its last step) and the fire
-  // path keeps only timestamp checks and the request itself. Same data, ~500 ms
-  // of slack instead of the 12 ms the fire wake gets - that margin of dispatch
-  // is what lets the aim ride closer to the boundary.
-  let tickPreflightPendingAt = 0; // a lost timer must not switch the preflight off
-  function tickPreflightSchedule() {
-    if (tickPreflightPendingAt && now() - tickPreflightPendingAt < 100) return;
-    tickPreflightPendingAt = now();
-    setTimeout(() => {
-      tickPreflightPendingAt = 0;
-      const E = state.tickEngine;
-      if (!tickEnabled() || E.lastBatchTick == null || E.origin == null) return;
-      const plan = E.plans.get(`TICK:${E.lastBatchTick + 1}`);
-      if (!plan || plan.pre) return;
-      const phase = plan.shots[0]?.phase;
-      if (phase == null) return;
-      const landing = E.origin + plan.n * TICK_MS + phase;
-      const t0 = now();
-      const pick = tickPickTarget(plan.n, t0, landing);
-      const best = !pick || pick.skip ? threatPick(landing, 0) : null;
-      plan.pre = { pick, best, avatar: pick && !pick.skip ? sceneRenderer()?.avatars?.get?.(pick.id) : null,
-        selectedAvatar: timingSelectedOnly() ? freshTimingSelection()?.avatar || null : null,
-        ms: Math.round((now() - t0) * 10) / 10 };
-    }, 0);
-  }
-
-  // 01/10 (v6_60): the preflight is only "same data" until something changes
-  // between the batch and the shot. Our own walk request is the big one: 20 of
-  // 26 sweep-late deaths today were a preflight made before we stepped next to a
-  // standing rival (P 0.986) - the shot went to the old pick at P 0.03 and the
-  // killer only got the sweep, 110 ms late. Same for a 211/coco that locks a rival.
-  function tickPreflightInvalidate() {
-    for (const plan of state.tickEngine.plans.values()) if (plan.pre) plan.pre = null;
-    tickPreflightSchedule();
-  }
-
-  // The isolated profile retains one primary per grid tick. If its normal
-  // landing is still locked, reuse that same ticket just after a known upper
-  // lock/coco ends, only for an enemy already in lateral contact.
-  function tickIsolatedRecoveryBoundary() {
-    const E = state.tickEngine;
-    const t = now();
-    if (E.selfLockKind === "ROUND" && E.selfLockEnd > t) return null;
-    let boundary = E.selfLockKind === "UPPER" && E.selfLockEnd > t ?
-      { end: E.selfLockEnd, kind: "UPPER", coco: null } : null;
-    exitSyncSelfCoco();
-    const coco = state.exitMode.self;
-    const cocoEnd = coco ? coco.endAt + Math.max(0, state.exitMode.U - 5) : 0;
-    if (coco && Number.isFinite(cocoEnd) && cocoEnd > t && (!boundary || cocoEnd > boundary.end)) {
-      boundary = { end: cocoEnd, kind: "COCO", coco };
-    }
-    return boundary;
-  }
-
-  function tickIsolatedRecoveryWaiter(landing, retained = null) {
-    const E = state.tickEngine;
-    const selfId = inferSelfId();
-    const me = ensureActorFromRenderer(selfId);
-    if (!me || selfId == null || selfId < 0 || E.selfOut || E.out.has(selfId)) return null;
-    const t = now();
-    let best = null;
-    const ids = retained ? [retained.id] : sceneRenderer()?.avatars?.keys?.() || [];
-    for (const rawId of ids) {
-      const id = asId(rawId);
-      if (id == null || id === selfId || E.out.has(id) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || isStale(id) ||
-          (E.down.get(id) || 0) > t || rivalLocked(id, landing)) continue;
-      const avatar = currentTargetAvatar(id, retained?.avatar);
-      if (!avatar || !timingTargetAllowed(id, avatar)) continue;
-      const a = ensureActorFromRenderer(id);
-      if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
-      const since = t - (a.startAt || 0);
-      if (!best || since > best.since) best = { id, avatar, since, score: 1, reactive: true,
-        face: faceSide(me.toX, me.toY, a.toX, a.toY) };
-    }
-    return best;
-  }
-
-  function tickDeferIsolatedRecovery(plan, msg, index) {
-    const E = state.tickEngine;
-    const shot = plan.shots[index];
-    if (!state.punchIsolation.enabled || !tickEnabled() || msg.seq !== state.seq || plan.recovery ||
-        E.selfOut || now() < E.pausedUntil || state.outboundUpperSeq !== plan.punchSeq ||
-        plan.shots.length !== 1 || !shot || shot.k !== 0 || shot.b !== 0 || shot.repeat || shot.sweep) return false;
-    const boundary = tickIsolatedRecoveryBoundary();
-    if (!boundary) return false;
-    const origin = plan.o ?? E.origin;
-    if (!Number.isFinite(origin)) return false;
-    const tickAt = origin + plan.n * TICK_MS;
-    const oldLanding = tickAt + shot.phase;
-    const landing = boundary.end + UNLOCK_MARGIN_MS;
-    // Preserve the next tick's T+13 primary and the shared 100 ms server gap.
-    const nextPrimary = tickAt + TICK_MS + state.punchIsolation.phaseMs;
-    if (oldLanding >= boundary.end || landing <= oldLanding || landing >= tickAt + TICK_MS ||
-        landing > nextPrimary - GUARD_LOCK_MS - 1 || selfLocked(landing) || exitBlocksLanding(landing)) return false;
-    const dueAt = landing - rttEstimateMs() - E.corr;
-    if (dueAt < now() + 2) return false;
-    const waiter = tickIsolatedRecoveryWaiter(landing);
-    if (!waiter) return false;
-    const planId = `${String(msg.planId)}:RECOVERY`;
-    try {
-      ensureTimingWorker().postMessage({ type: "arm", planId, targetId: -1, stepAt: plan.n,
-        stepMs: TICK_MS, seq: state.seq, leadMs: 0, window: "TICK",
-        fires: [{ index: 0, dueAt, delayMs: Math.max(0, dueAt - now() - SPIN_EARLY_MS) }] });
-    } catch { return false; }
-    // The distinct ticket makes an already-delivered original callback inert.
-    E.plans.delete(String(msg.planId));
-    plan.shots = [{ ...shot, phase: landing - tickAt }];
-    plan.pre = null;
-    plan.recovery = { ...boundary, id: waiter.id, avatar: waiter.avatar, dueAt, landing,
-      punchSeq: state.outboundUpperSeq };
-    E.plans.set(planId, plan);
-    sendDiagnostic("tick_recovery", { stage: "armed", tick: plan.n, targetId: waiter.id,
-      lockKind: boundary.kind, lockEnd: boundary.end, oldPhase: shot.phase, phase: landing - tickAt });
-    return true;
-  }
-
-  function tickIsolatedRecoveryPick(plan) {
-    const E = state.tickEngine;
-    const recovery = plan.recovery;
-    if (!recovery || state.outboundUpperSeq !== recovery.punchSeq ||
-        (recovery.kind === "UPPER" && (recovery.end !== E.selfLockEnd || E.selfLockKind !== "UPPER")) ||
-        (recovery.kind === "COCO" && state.exitMode.self && state.exitMode.self !== recovery.coco) ||
-        selfLocked(recovery.landing) || exitBlocksLanding(recovery.landing)) return null;
-    return tickIsolatedRecoveryWaiter(recovery.landing, recovery);
+    const dual = DUAL_TIE && !known && cfg.single && two && two.score >= 0.1 && two.score >= pick.score * 0.5 && pick.score < 0.9 ? two : null;
+    return { id: pick.id, reactive: known, score: pick.score, face: pick.face, dual };
   }
 
   function tickPump() {
@@ -4141,37 +3314,23 @@
     // shot k lands at T + offset + k*spacing; shot 0 expands into a dense
     // burst (b = 0..burst-1, burstGapMs apart), all of it after T.
     const shots = [];
-    if (state.freeFire.enabled && !state.punchIsolation.enabled) {
-      // EXPERIMENTAL: ignora el espaciado de ~100 ms. Rellena la ventana entera
-      // del tick con disparos cada gapMs al mejor objetivo (sin la guarda de
-      // cooldown ni el sweep/repeat). El hueco del server sigue; es para medir.
-      const gapMs = clamp(state.freeFire.gapMs | 0, 4, 200);
-      let k = 0;
-      for (let phase = offset; phase < offset + TICK_MS; phase += gapMs, k++) {
-        shots.push({ phase, k: k === 0 ? 0 : k, b: 0, free: true });
-      }
-    } else {
-      for (let k = 0; k < eff.shots; k++) {
-        const base = offset + k * eff.spacing;
-        // Keep the server cooldown clear for the next tick's first shot.
-        if (base > TICK_MS - 110 + offset) break;
-        const count = k === 0 ? eff.burst : 1;
-        for (let b = 0; b < count; b++) shots.push({ phase: base + b * eff.gap, k, b });
-      }
-      const adv = state.tickAdv;
-      if (!state.punchIsolation.enabled && cfg.single && eff.shots === 1 && cfg.blind && adv.repeatMs > 0) shots.push({ phase: offset + adv.repeatMs + burstSpanMs(), k: 1, b: 0, repeat: true });
-      else if (!state.punchIsolation.enabled && cfg.single && eff.shots === 1 && cfg.blind && adv.sweep && !lowPingActive()) shots.push({ phase: offset + eff.spacing + SWEEP_EXTRA_MS + burstSpanMs(), k: 1, b: 0, sweep: true });
+    for (let k = 0; k < eff.shots; k++) {
+      const base = offset + k * eff.spacing;
+      // Keep the server cooldown clear for the next tick's first shot.
+      if (base > TICK_MS - 110 + offset) break;
+      const count = k === 0 ? eff.burst : 1;
+      for (let b = 0; b < count; b++) shots.push({ phase: base + b * eff.gap, k, b });
     }
+    const adv = state.tickAdv;
+    if (cfg.single && eff.shots === 1 && cfg.blind && adv.repeatMs > 0) shots.push({ phase: offset + adv.repeatMs + burstSpanMs(), k: 1, b: 0, repeat: true });
+    else if (cfg.single && eff.shots === 1 && cfg.blind && adv.sweep && !lowPingActive()) shots.push({ phase: offset + eff.spacing + SWEEP_EXTRA_MS + burstSpanMs(), k: 1, b: 0, sweep: true });
     const fires = [];
     shots.forEach((shot, index) => {
       const at = E.origin + n * TICK_MS + shot.phase - lead;
       fires.push({ index, dueAt: at, delayMs: Math.max(0, at - t - SPIN_EARLY_MS) });
     });
     const planId = `TICK:${n}`;
-    // o/lead: the frame the plan was armed in. Replies are judged against it,
-    // not against the current origin (a refit in between used to shift err).
-    E.plans.set(planId, { n, shots, burst: state.freeFire.enabled && !state.punchIsolation.enabled ? 1 : eff.burst,
-      fired: 0, burstTarget: null, o: E.origin, lead, punchIsolation: state.punchIsolation.enabled, punchSeq: state.outboundUpperSeq });
+    E.plans.set(planId, { n, shots, burst: eff.burst, fired: 0, burstTarget: null });
     while (E.plans.size > 4) E.plans.delete(E.plans.keys().next().value);
     E.stats.planned++;
     try {
@@ -4194,7 +3353,6 @@
     const plan = E.plans.get(String(msg.planId || ""));
     if (!plan) return;
     const index = msg.index | 0;
-    if (tickDeferIsolatedRecovery(plan, msg, index)) return;
     plan.fired++;
     if (plan.fired >= plan.shots.length) E.plans.delete(String(msg.planId));
     if (!tickEnabled() || msg.seq !== state.seq) return;
@@ -4209,78 +3367,51 @@
     };
     if (E.selfOut || t < E.pausedUntil) return skip(E.selfOut ? "eliminado" : "self_down");
     if (!shot) return;
-    if (state.punchIsolation.enabled && (shot.k !== 0 || shot.b !== 0 || shot.repeat || shot.sweep)) return skip("punch_isolation");
     const phase = shot.phase;
-    const landing = plan.recovery?.landing ?? E.origin + plan.n * TICK_MS + phase;
-    if (exitBlocksLanding(landing)) return skip("self_coco");
-    if (selfLocked(landing)) return skip("traba");
+    if (exitBlocksLanding(E.origin + plan.n * TICK_MS + phase)) return skip("self_coco");
+    if (selfLocked(E.origin + plan.n * TICK_MS + phase)) return skip("traba");
     // The unlock click covers this moment (a second click would only hit the
     // server's 100 ms gap) - only if it has someone to hit: 26/09 it went out
     // with no target 102 times in 117, and the tick click was dropped anyway.
     const unlockLanding = E.unlock.end + UNLOCK_MARGIN_MS;
-    if (!state.punchIsolation.enabled && E.unlock.end && E.unlock.end === E.selfLockEnd && Math.abs(landing - unlockLanding) < 120 &&
+    if (E.unlock.end && E.unlock.end === E.selfLockEnd && Math.abs(E.origin + plan.n * TICK_MS + phase - unlockLanding) < 120 &&
         (unlockAmbusher(unlockLanding) || threatPick(unlockLanding, UNLOCK_MIN_PROB))) return skip("unlock");
     // A rival's unlock click covers this moment (a standing neighbour waking
     // up is surer than a guess, and a 144 here would block it).
-    if (runlockCovers(landing)) return skip("runlock");
+    if (runlockCovers(E.origin + plan.n * TICK_MS + phase)) return skip("runlock");
     let pick;
-    if (plan.recovery) {
-      pick = tickIsolatedRecoveryPick(plan);
-      if (!pick) return skip("recovery_target_changed");
-    } else if (shot.repeat) {
+    if (shot.repeat) {
       // Second click at the first click's target (whatever happened to the first).
       if (plan.burstTarget == null || plan.burstReactive) return;
       pick = { id: plan.burstTarget, reactive: false, score: plan.burstScore, repeat: true };
     } else if (shot.sweep) {
       // Only after a blind first click: the runner-up at the sweep landing.
       if (plan.burstTarget == null || plan.burstReactive) return;
-      const second = threatPick(landing, SWEEP_MIN_SCORE, plan.burstTarget);
+      const second = threatPick(E.origin + plan.n * TICK_MS + phase, SWEEP_MIN_SCORE, plan.burstTarget);
       if (!second) {
-        const primary = threatPick(landing, SWEEP_MIN_SCORE);
-        if (!primary || primary.id !== plan.burstTarget || !currentTargetAvatar(primary.id, plan.burstAvatar)) {
-          E.stats.skipped++;
-          E.stats.lastSkip = "sweep_none";
-          return;
-        }
-        // Reuse this already scheduled slot only when the original opponent
-        // remains the best eligible threat. It adds no requests to the plan.
-        pick = { id: primary.id, reactive: false, score: primary.score, face: primary.face, retry: true };
-      } else {
-        pick = { id: second.id, reactive: false, score: second.score, face: second.face, sweep: true };
+        E.stats.skipped++;
+        E.stats.lastSkip = "sweep_none";
+        return;
       }
+      pick = { id: second.id, reactive: false, score: second.score, face: second.face, sweep: true };
     } else if (shot.b > 0) {
       // Rest of the burst: same target and decision as its first request.
       if (plan.burstTarget == null) return;
       pick = { id: plan.burstTarget, reactive: plan.burstReactive, score: plan.burstScore };
     } else {
-      // 01/10: precomputed at batch settle (same data); without a preflight
-      // (no batch, late arm) the decision happens here, as before.
-      let pre = plan.pre;
-      if (pre && timingSelectedOnly() && (pre.selectedAvatar || null) !== (freshTimingSelection()?.avatar || null)) {
-        plan.pre = null;
-        pre = null;
-      }
-      if (pre?.pick && !pre.pick.skip &&
-          (!timingTargetAllowed(pre.pick.id, pre.avatar) || E.out.has(pre.pick.id) || isStale(pre.pick.id) || isAlly(pre.pick.id) || (!timingSelectedOnly() && isMuted(pre.pick.id)) ||
-           (E.down.get(pre.pick.id) || 0) > t || rivalLocked(pre.pick.id, landing) ||
-           !currentTargetAvatar(pre.pick.id, pre.avatar))) {
-        plan.pre = null;
-        pre = null;
-      }
-      pick = pre ? pre.pick : tickPickTarget(plan.n, t, landing);
+      pick = tickPickTarget(plan.n, t, E.origin + plan.n * TICK_MS + phase);
       if (!pick || pick.skip) {
         E.stats.skipped++;
         E.stats.lastSkip = pick?.skip || "none";
         if (state.diagnostics.enabled) {
-          const best = pre ? pre.best : threatPick(landing, 0);
-          sendDiagnostic("tick_skip", { tick: plan.n, reason: pick?.skip || "none", bestId: best ? best.id : -1, bestP: best ? best.score : 0, bestDist: best ? best.dist : null, pre: pre ? 1 : 0 });
+          const best = threatPick(E.origin + plan.n * TICK_MS + phase, 0);
+          sendDiagnostic("tick_skip", { tick: plan.n, reason: pick?.skip || "none", bestId: best ? best.id : -1, bestP: best ? best.score : 0, bestDist: best ? best.dist : null });
         }
         if (shot.k === 0) plan.burstTarget = null;
         return;
       }
       if (shot.k === 0) {
         plan.burstTarget = pick.id;
-        plan.burstAvatar = sceneRenderer()?.avatars?.get?.(pick.id);
         plan.burstReactive = pick.reactive;
         plan.burstScore = pick.score;
         if (plan.burst > 1) {
@@ -4289,32 +3420,11 @@
         }
       }
     }
-    if ((shot.repeat || shot.b > 0) && plan.burstAvatar &&
-        sceneRenderer()?.avatars?.get?.(pick.id) !== plan.burstAvatar) return skip("target_replaced");
     const inBurst = shot.k === 0 && plan.burst > 1;
-    // The face goes out ~SPIN_EARLY_MS before the punch: the server processes
-    // rotations in order before it, and what is left after the spin is the
-    // punch request itself.
-    const faced = state.timing.tick.single && !E.selfOut ? faceBeforeClick(pick.face) : false;
     spinUntil(Number(msg.dueAt));
+    const faced = state.timing.tick.single && !E.selfOut ? faceBeforeClick(pick.face) : false;
     const sentAt = now();
-    if (plan.recovery) {
-      // An edge request delivered late must not steal the following primary.
-      // Prefer its actual armed deadline when the next plan already exists.
-      const following = E.plans.get(`TICK:${plan.n + 1}`);
-      const nextDue = following ? following.o + following.n * TICK_MS + following.shots[0].phase - following.lead :
-        E.origin + (plan.n + 1) * TICK_MS + state.punchIsolation.phaseMs - rttEstimateMs() - E.corr;
-      if (sentAt - plan.recovery.dueAt > 8) return skip("recovery_late");
-      if (nextDue - sentAt < GUARD_LOCK_MS + 1) return skip("recovery_next_gap");
-    }
-    // A contact fallback/exit may have fired since this tick was armed. In
-    // single mode the saved plan cannot consume that request's server gap.
-    if (state.timing.tick.single && sentAt - (state.lastPunch.at ?? -1e9) < GUARD_LOCK_MS + 1) {
-      if (shot.k === 0 && !shot.b) plan.burstTarget = null;
-      return skip("shared_gap");
-    }
-    const ok = firePunch(pick.id, pick.repeat ? "TICK_REPEAT" : pick.retry ? "TICK_RETRY" : pick.sweep ? "TICK_SWEEP" : pick.reactive ? "TICK_REACT" : "TICK_BLIND", { bypassThrottle: true,
-      avatar: plan.recovery?.avatar || (timingSelectedOnly() ? pick.avatar || plan.burstAvatar : undefined) });
+    const ok = firePunch(pick.id, pick.repeat ? "TICK_REPEAT" : pick.sweep ? "TICK_SWEEP" : pick.reactive ? "TICK_REACT" : "TICK_BLIND", { bypassThrottle: true });
     if (ok && pick.repeat) state.tickAdv.repeats++;
     if (ok && pick.sweep) {
       E.sweepStats.fired++;
@@ -4326,16 +3436,14 @@
     }
     const burst = inBurst ? E.bursts.findLast((x) => x.n === plan.n) : null;
     if (burst && ok) burst.sent++;
-    const first = { seq: state.seq, packets: state.lastFireResult?.sentCount || 0,
-      sentAt, dueAt: Number(msg.dueAt), late: 0, o: plan.o, n: plan.n, k: shot.k, b: shot.b, phase, targetId: pick.id,
-      avatar: currentTargetAvatar(pick.id), reactive: pick.reactive, ok, matched: false, burst };
+    const first = { sentAt, n: plan.n, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, ok, matched: false, burst };
     E.shots.push(first);
-    if (ok && !state.punchIsolation.enabled && pick.dual && shot.b === 0) {
+    if (ok && pick.dual && shot.b === 0) {
       // No turn for it: a valid first click must keep its facing.
       spinUntil(sentAt + 3);
       const okDual = firePunch(pick.dual.id, "TICK_DUAL", { bypassThrottle: true });
       if (okDual) {
-        const dualShot = { sentAt: now(), dueAt: sentAt + 3, late: 0, o: plan.o, n: plan.n, k: shot.k, b: 1, dual: true, phase: phase + 3, targetId: pick.dual.id, reactive: false, ok: true, matched: false, burst: null, pair: first };
+        const dualShot = { sentAt: now(), n: plan.n, k: shot.k, b: 1, dual: true, phase: phase + 3, targetId: pick.dual.id, reactive: false, ok: true, matched: false, burst: null, pair: first };
         first.pair = dualShot;
         E.shots.push(dualShot);
         E.tickTargets2.set(plan.n, pick.dual.id);
@@ -4350,73 +3458,28 @@
     if (pick.reactive) E.stats.reactive++;
     else E.stats.blind++;
     const late = Math.round(sentAt - Number(msg.dueAt));
-    first.late = late;
     sendTimingMetric("fire", "STEP", pick.id, phase, phase + late, late, TICK_MS, 1, ok,
       `tick n=${plan.n} k=${shot.k} b=${shot.b} ${pick.reactive ? "react" : "blind"} score=${pick.score} corr=${Math.round(E.corr)}`,
       { window: "TICK", scheduler: "worker", tickPhase: phase, corrMs: Math.round(E.corr), rttMs: rttEstimateMs(), reactive: pick.reactive });
     sendDiagnostic("tick_fire", {
       tick: plan.n, index, k: shot.k, b: shot.b, phase, targetId: pick.id, reactive: pick.reactive, score: pick.score, ok, face: faced ? pick.face : 0,
-      lateMs: late, corrMs: E.corr, origin: plan.recovery ? plan.o : E.origin, rttMs: rttEstimateMs(), burst: state.punchIsolation.enabled ? 1 : state.tickBurst,
-      punchIsolation: state.punchIsolation.enabled, isolationPhaseMs: state.punchIsolation.enabled ? state.punchIsolation.phaseMs : null,
-      recovery: Boolean(plan.recovery), recoveryKind: plan.recovery?.kind ?? null,
-      pre: plan.pre ? 1 : 0, preMs: plan.pre?.ms ?? null
+      lateMs: late, corrMs: E.corr, origin: E.origin, rttMs: rttEstimateMs(), burst: state.tickBurst
     });
   }
 
-  function tickReplySnapshot(s) {
-    return s ? { seq: s.seq ?? state.seq, o: s.o ?? state.tickEngine.origin,
-      n: s.n, k: s.k, b: s.b, phase: s.phase, sentAt: s.sentAt,
-      targetId: s.targetId, late: s.late || 0, reactive: Boolean(s.reactive) } : null;
-  }
-
-  function tickHitQuality(t, targetId) {
-    const E = state.tickEngine;
-    const uncertainty = 3 * E.auto.sigma + 15;
-    const compatible = (landing) => Number.isFinite(landing) &&
-      t - landing >= -uncertainty && t - landing <= 200;
-    const candidates = E.shots.filter((s) => s.ok && s.sentAt <= t &&
-      s.targetId === targetId && !s.trustedReject &&
-      compatible((s.o ?? E.origin) + s.n * TICK_MS + s.phase + (s.late || 0)));
-    // A 211 includes the defender, but no request identifier. Consider every
-    // request able to produce it across the hold window, not only the closest
-    // phase. REACT/EXIT/manual can win while a primary/repeat is still pending.
-    const others = E.allShots.filter((r) => !String(r.reason || "").startsWith("TICK") &&
-      r.at <= t && r.targetId === targetId &&
-      compatible(r.at + (r.lead ?? rttEstimateMs() + E.corr)));
-    if (candidates.length !== 1 || others.length) return { trusted: false, reason: "competing_or_unmatched_hit" };
-    const owner = candidates[0];
-    if (owner.seq != null && owner.seq !== state.seq) return { trusted: false, reason: "previous_generation" };
-    if ((owner.late || 0) >= TICK_CAL_MAX_LATE_MS || (owner.packets ?? 1) !== 1) {
-      return { trusted: false, reason: "late_or_burst_hit" };
-    }
-    return { trusted: true, reason: "unique_hit", owner, shot: tickReplySnapshot(owner) };
-  }
-
-  // A clean 144 measures arrival. A 211 includes an unknown hold: it can
-  // report a win without establishing which of our requests won that race.
+  // 144 (rejected) or 211 by us (hit): the reply's phase on the grid is when
+  // the server processed the shot, so it measures our landing error.
   function tickOnServerReply(t, kind, targetId = -1) {
     const E = state.tickEngine;
     if (E.origin == null) return;
     // The server handles requests in order: a reply belongs to the earliest
-    // unanswered shot whose expected reply time is close to it. Expected times
-    // use each shot's saved origin (the frame it was planned in): a refit
-    // between arming and reply used to shift err by the drift (28/09).
+    // unanswered shot whose expected reply time is close to it.
     const tol = 60 + 2 * E.auto.sigma;
-    const shotO = (s) => (s.o == null ? E.origin : s.o);
     let best = null;
     for (const s of E.shots) {
       if (s.matched || !s.ok || s.sentAt > t) continue;
-      // A hit names its defender: only a shot aimed at him can own the reply
-      // (28/09: 6 of 25 hits were matched to a shot aimed at someone else).
-      if (kind === "hit" && targetId >= 0 && s.targetId !== targetId) continue;
-      if (Math.abs(t - (shotO(s) + s.n * TICK_MS + s.phase)) > tol) continue;
+      if (Math.abs(t - (E.origin + s.n * TICK_MS + s.phase)) > tol) continue;
       if (!best || s.sentAt < best.sentAt) best = s;
-    }
-    const hitQuality = kind === "hit" ? tickHitQuality(t, targetId) : null;
-    if (kind === "hit") {
-      tickAutoNoteReply(t, kind, targetId, hitQuality);
-      if (hitQuality.trusted) best = hitQuality.owner;
-      if (targetId >= 0 && !best) E.stats.hitsUnmatched++;
     }
     // Near-tie pair: a 144 belongs to the one that did not end next to us.
     if (best && kind === "reject") {
@@ -4427,94 +3490,35 @@
         if (lat(best.targetId) && !lat(other.targetId)) best = other;
       }
     }
-    if (!best) {
-      if (kind === "reject") tickAutoNoteReply(t, kind, -1, { trusted: false, reason: "unmatched_reject" });
-      return;
-    }
+    // A 144 carries no target: it is the matched shot's.
+    tickAutoNoteReply(t, kind, kind === "hit" ? targetId : best ? best.targetId : -1);
+    if (!best) return;
     best.matched = true;
     if (best.burst) {
       best.burst.replies++;
       if (kind === "hit") best.burst.hits++;
     }
-    const observed = tickWrap(t - shotO(best));
+    const observed = tickWrap(t - E.origin);
     const err = tickWrap(observed - best.phase);
-    const errAdj = tickWrap(err - (best.late || 0));
     E.stats.replies++;
     if (kind === "hit") E.stats.hits++;
-    if (state.punchIsolation.enabled) {
-      if (kind === "reject") tickAutoNoteReply(t, kind, best.targetId, { trusted: false, reason: "punch_isolation" });
-      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed,
-        errMs: err, errAdjMs: errAdj, corrMs: E.corr, lateMs: best.late || 0,
-        learningTrusted: false, learningReason: "punch_isolation", punchIsolation: true });
-      return;
-    }
     // Only a 144 measures the landing: it is answered on arrival, while a hit
     // is held 50-160 ms before its 211. Hits used to push corr up ~10 ms each
     // and inflate sigma (26/09 live: we then landed 9 ms early, at T+1..3).
     if (kind !== "reject") {
-      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, errAdjMs: errAdj, corrMs: E.corr, lateMs: best.late || 0,
-        learningTrusted: hitQuality.trusted, learningReason: hitQuality.reason, oDriftMs: Math.round(E.origin - shotO(best)) });
+      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, corrMs: E.corr });
       return;
     }
-    // Calibration gate (28/09): a late dispatch lands late and reads as
-    // landing error - one-sided, it biased corr up and inflated sigma (33 of
-    // 625 rejects; one took corr 13.8 -> 25.9). And a 144 names no request:
-    // when another engine's punch (REACT, GUARD, UNLOCK, RETRY, probes...) or
-    // a tick shot outside this burst cluster could own it, err is not ours.
-    // The reply is still consumed in FIFO order; only learning is gated.
-    if (best.seq != null && best.seq !== state.seq) {
-      tickAutoNoteReply(t, kind, best.targetId, { trusted: false, reason: "previous_generation" });
-      return;
-    }
-    if (best.late >= TICK_CAL_MAX_LATE_MS) {
-      tickAutoNoteReply(t, kind, best.targetId, { trusted: false, reason: "late_reject" });
-      E.stats.calSkippedLate++;
-      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, errAdjMs: errAdj, corrMs: E.corr, lateMs: best.late, late: true, oDriftMs: Math.round(E.origin - shotO(best)) });
-      tickBounceRetry(best);
-      return;
-    }
-    if ((best.packets ?? 1) > 1) {
-      E.stats.calSkippedAmbiguous++;
-      tickAutoNoteReply(t, kind, best.targetId, { trusted: false, reason: "burst_reject" });
-      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase,
-        ambiguous: true, packets: best.packets, learningTrusted: false, learningReason: "burst_reject" });
-      tickBounceRetry(best);
-      return;
-    }
-    let rivals = 0;
-    for (const s of E.shots) {
-      if (s === best || s === best.pair || s.matched || !s.ok || s.sentAt > t) continue;
-      if (Math.abs(t - (shotO(s) + s.n * TICK_MS + s.phase)) > tol) continue;
-      // The rest of best's own burst (same tick, same target, sent right
-      // after) is the same click to the server: not a competing candidate.
-      if (s.targetId === best.targetId && s.n === best.n && Math.abs(s.sentAt - best.sentAt) <= 30) continue;
-      rivals++;
-    }
-    for (const r of E.allShots) {
-      if (String(r.reason || "").startsWith("TICK")) continue; // covered above
-      if (Math.abs(t - (r.at + (r.lead ?? rttEstimateMs() + E.corr))) > tol) continue;
-      rivals++;
-    }
-    if (rivals > 0) {
-      tickAutoNoteReply(t, kind, best.targetId, { trusted: false, reason: "ambiguous_reject" });
-      E.stats.calSkippedAmbiguous++;
-      sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, errAdjMs: errAdj, corrMs: E.corr, lateMs: best.late || 0, ambiguous: true, rivals, oDriftMs: Math.round(E.origin - shotO(best)) });
-      tickBounceRetry(best);
-      return;
-    }
-    best.trustedReject = true;
-    tickAutoNoteReply(t, kind, best.targetId, { trusted: true, reason: "unique_reject", shot: tickReplySnapshot(best) });
-    E.lastErr = Math.round(errAdj);
-    E.errs.push(Math.round(errAdj));
+    E.lastErr = Math.round(err);
+    E.errs.push(Math.round(err));
     while (E.errs.length > 30) E.errs.shift();
-    E.stats.calibrated++;
-    E.auto.sigma = Math.max(2, Math.min(80, 0.92 * E.auto.sigma + 0.08 * 1.2533 * Math.abs(errAdj)));
-    if (state.timing.tick.autoCal && Math.abs(errAdj) < 150) {
+    E.auto.sigma = Math.max(2, Math.min(80, 0.92 * E.auto.sigma + 0.08 * 1.2533 * Math.abs(err)));
+    if (state.timing.tick.autoCal && Math.abs(err) < 150) {
       // Outliers (a lost request, a stall) move corr only a bounded step.
       const lim = 10 + 2.5 * E.auto.sigma;
-      E.corr = Math.max(-150, Math.min(150, E.corr + 0.25 * Math.max(-lim, Math.min(lim, errAdj))));
+      E.corr = Math.max(-150, Math.min(150, E.corr + 0.25 * Math.max(-lim, Math.min(lim, err))));
     }
-    sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, errAdjMs: errAdj, corrMs: E.corr, lateMs: best.late || 0, oDriftMs: Math.round(E.origin - shotO(best)) });
+    sendDiagnostic("tick_reply", { kind, tick: best.n, k: best.k, b: best.b, phase: best.phase, observed, errMs: err, corrMs: E.corr });
     tickBounceRetry(best);
   }
 
@@ -4523,7 +3527,6 @@
   // An autoclick would click again after the server gap; so do we, once per
   // tick, landing after the gap of every click we already sent for that tick.
   function tickBounceRetry(shot) {
-    if (state.punchIsolation.enabled) return;
     const E = state.tickEngine;
     if (shot.k !== 0 || shot.reactive || E.bounceRetryTick === shot.n) return;
     if (!tickEnabled() || E.selfOut) return;
@@ -4535,16 +3538,9 @@
     }
     if (shot.n !== E.lastBatchTick) return;
     const id = shot.targetId;
-    // The reply may describe the earlier blind request after its real-contact
-    // fallback already left. It must not create a second delayed fallback.
-    if (["REACT", "REACT_FALLBACK"].includes(state.lastPunch.reason) &&
-        state.lastPunch.targetId === id && state.lastPunch.at >= E.lastBatchAt) return;
     const me = ensureActorFromRenderer(inferSelfId());
     const a = ensureActorFromRenderer(id);
-    const avatar = currentTargetAvatar(id, shot.avatar);
-    const seq = state.seq;
-    const batchAt = E.lastBatchAt;
-    if (!avatar || !timingTargetAllowed(id, avatar) || !me || !a || E.out.has(id) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
+    if (!me || !a || E.out.has(id) || isMuted(id) || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return;
     const lead = rttEstimateMs() + E.corr;
     let landAfter = 0;
     for (const x of E.shots) {
@@ -4554,21 +3550,10 @@
     if (selfLocked(landing) || rivalLocked(id, landing) || exitBlocksLanding(landing)) return;
     E.bounceRetryTick = shot.n;
     const fire = () => {
-      if (!tickEnabled() || state.seq !== seq || E.lastBatchAt !== batchAt ||
-          !timingTargetAllowed(id, avatar) || !currentTargetAvatar(id, avatar)) return;
       const m = ensureActorFromRenderer(inferSelfId());
       const b = ensureActorFromRenderer(id);
-      const at = now();
-      const landingNow = at + rttEstimateMs() + E.corr;
-      if (E.selfOut || !m || !b || E.out.has(id) || isMuted(id) || isAlly(id) ||
-          rivalLocked(id, landingNow) || selfLocked(landingNow) || exitBlocksLanding(landingNow) ||
-          !lateralAdjacent(m.toX, m.toY, b.toX, b.toY)) return;
-      const freeAt = (state.lastPunch.at ?? -1e9) + GUARD_LOCK_MS + 1;
-      if (at < freeAt) {
-        if (freeAt + rttEstimateMs() + E.corr < batchAt + TICK_MS) setTimeout(fire, Math.ceil(freeAt - at));
-        return;
-      }
-      if (firePunch(id, "RETRY", { bypassThrottle: true, avatar, packets: 1 })) E.stats.bounceRetries = (E.stats.bounceRetries || 0) + 1;
+      if (E.selfOut || !m || !b || E.out.has(id) || !lateralAdjacent(m.toX, m.toY, b.toX, b.toY)) return;
+      if (firePunch(id, "RETRY", { bypassThrottle: true })) E.stats.bounceRetries = (E.stats.bounceRetries || 0) + 1;
     };
     const wait = landing - lead - now();
     if (wait <= 1) fire();
@@ -4578,24 +3563,26 @@
   // ---- TICK autotune ---------------------------------------------------------
   // Learns while playing and aims the first shot of every tick at B + margin:
   //  - B: phase (ms after T, server side) where the server switches contact.
-  //    Only trusted, attributable replies at changed rival contacts supply
-  //    labels. A 211's hold is not its request's landing; absence of a 144
-  //    does not prove acceptance. Old labels are discarded during migration.
-  //  - margin: -1 on a uniquely attributable primary win, +4 on a clean
-  //    rejection of that primary at the switch. An unattributed loss/win is
-  //    counted but cannot move the aim.
+  //    Samples come only from ticks where the contact with the fichado
+  //    changed: there each reply says whether it was processed before or after
+  //    the switch (new contact: 211 = after, 144 = before; lost contact: the
+  //    reverse). A 211 from the fichado on us at a new contact is also "after".
+  //  - margin: squeezed on every race we win (-1) and on every race lost by
+  //    landing late (-3); pushed back when the first shot lands before the
+  //    switch (+4 lost, +3 when a later shot still won: "rescued").
+  //    It settles where early shots and late losses balance, as close to B as
+  //    our jitter allows.
   //  - sigma: landing jitter (robust EW of the landing error).
   //  - cooldown: from replies per burst. Global cooldown: an early request
   //    locks the next 100 ms, so the burst shrinks to 2. No cooldown: the
   //    burst widens to cover the jitter and may start before B.
   // Learned values persist in the game localStorage between sessions.
-  const TICK_AUTO_KEY = "bbhub.tickAuto.v5"; // v5 (02/10): v6_58-60 saved B at -10 (144s read an RTT early); v4 (27/09): B no longer fed with 211 phases (landing + hold); v3 samples were inflated
+  const TICK_AUTO_KEY = "bbhub.tickAuto.recovery29"; // v4 (27/09): B no longer fed with 211 phases (landing + hold); v3 samples were inflated
   const TICK_AUTO_SAMPLES = 60;
 
   function tickAutoInit() {
     return {
       B: TICK_B_PRIOR,
-      boundaryPrior: TICK_B_PRIOR,
       margin: TICK_MARGIN_FLOOR,
       sigma: 4,
       cooldown: "unknown",
@@ -4612,8 +3599,6 @@
       rescued: 0,
       early: 0,
       late: 0,
-      lost: 0,
-      learningHeld: 0,
       lastOutcome: "",
       dirty: false,
       savedAt: 0,
@@ -4627,7 +3612,6 @@
   }
 
   function tickAutoLoad() {
-    if (state.punchIsolation.enabled) return;
     const A = state.tickEngine.auto;
     if (A.loaded) return;
     A.loaded = true;
@@ -4636,8 +3620,6 @@
       if (!raw) return;
       const saved = JSON.parse(raw);
       A.B = tickAutoNum(saved.B, TICK_B_MIN, TICK_B_MAX, A.B);
-      A.boundaryPrior = saved.learningVersion === 1
-        ? tickAutoNum(saved.boundaryPrior, TICK_B_MIN, TICK_B_MAX, A.B) : A.B;
       const savedMargin = tickAutoNum(saved.margin, -40, 80, A.margin);
       // A margin saved above the cap had drifted: start again from the floor.
       A.margin = savedMargin > TICK_MARGIN_MAX ? TICK_MARGIN_FLOOR : Math.max(TICK_MARGIN_FLOOR, savedMargin);
@@ -4645,15 +3627,14 @@
       // (live, 144s alone give sigma ~4 and corr ~5).
       A.sigma = Math.min(saved.v6 ? 80 : 6, tickAutoNum(saved.sigma, 2, 80, A.sigma));
       if (["global", "partial", "none"].includes(saved.cooldown)) A.cooldown = saved.cooldown;
-      if (saved.learningVersion === 1 && Array.isArray(saved.samples)) {
+      if (Array.isArray(saved.samples)) {
         A.samples = saved.samples
-          .filter((s) => s?.quality === 1 && tickSampleOk(Number(s.p)))
+          .filter((s) => tickSampleOk(Number(s?.p)))
           .slice(-TICK_AUTO_SAMPLES)
-          .map((s) => ({ p: Number(s.p), after: Boolean(s.after), quality: 1 }));
+          .map((s) => ({ p: Number(s.p), after: Boolean(s.after) }));
       }
-      // Preserve the bounded existing estimate as a weak starting prior, but
-      // never refit using old labels with no request-attribution provenance.
-      if (A.samples.length) A.B = tickAutoFitBoundary(A.samples, A.boundaryPrior);
+      // Refit from the samples that survive the filter (28/09: a saved B of -150).
+      if (A.samples.length) A.B = tickAutoFitBoundary(A.samples);
       if (Array.isArray(saved.rival)) A.rival = saved.rival.filter((v) => Number.isFinite(v)).slice(-20);
       // Live, the real lead is ping + 4..7 ms in every session: start there
       // when nothing trustworthy is saved (26/09: corr 0 put the first click at T+16).
@@ -4662,7 +3643,6 @@
   }
 
   function tickAutoSave(t, force = false) {
-    if (state.punchIsolation.enabled) return;
     const A = state.tickEngine.auto;
     if (!force && (!A.dirty || t - A.savedAt < 15000)) return;
     A.savedAt = t;
@@ -4671,21 +3651,18 @@
       window.localStorage?.setItem(TICK_AUTO_KEY, JSON.stringify({
         v: 1,
         v6: true, // saved after the held-hit fix (sigma/corr from 144s only)
-        learningVersion: 1,
-        boundaryPrior: A.boundaryPrior,
         B: Math.round(A.B),
         margin: Math.round(A.margin),
         sigma: Math.round(A.sigma),
         cooldown: A.cooldown,
         corr: Math.round(state.tickEngine.corr),
-        samples: A.samples.filter((s) => s.quality === 1).map((s) => ({ p: Math.round(s.p), after: s.after, quality: 1 })),
+        samples: A.samples.map((s) => ({ p: Math.round(s.p), after: s.after })),
         rival: A.rival
       }));
     } catch {}
   }
 
   function tickAutoReset() {
-    if (state.punchIsolation.enabled) return;
     state.tickEngine.auto = { ...tickAutoInit(), loaded: true };
     state.tickEngine.corr = 0;
     state.tickEngine.errs = [];
@@ -4696,8 +3673,6 @@
 
   // Shot plan for the next tick: manual values, or the learned ones.
   function tickEffective() {
-    if (state.punchIsolation.enabled) return { auto: false, offset: state.punchIsolation.phaseMs,
-      burst: 1, gap: 0, spacing: 104, shots: 1, punchIsolation: true };
     const cfg = state.timing.tick;
     if (!cfg.auto) {
       // 28/09: manual only fixes the arrival. The Hub sends spacing 110, which put the
@@ -4735,12 +3710,7 @@
     const eff = tickEffective();
     // With no server cooldown an early request costs nothing: the burst may
     // straddle B. Otherwise an early request wastes the next 100 ms.
-    // 01/10: the floor follows the measured jitter instead of the constant 10.
-    // With the decision off the fire path, a clean session (sigma ~4) may aim
-    // T+5; a messy one keeps today's 10 (26/09: sigma 8 bounced aims at T+6/7).
-    // The absolute floor 4 keeps the aim inside the acceptance window.
-    const lo = A.cooldown === "none" ? -Math.max(5, (eff.burst - 1) * eff.gap)
-      : Math.max(4, Math.min(TICK_MARGIN_FLOOR, Math.round(1.25 * A.sigma)), Math.round(A.sigma / 2));
+    const lo = A.cooldown === "none" ? -Math.max(5, (eff.burst - 1) * eff.gap) : Math.max(TICK_MARGIN_FLOOR, Math.round(A.sigma / 2));
     return [Math.min(lo, TICK_MARGIN_MAX), TICK_MARGIN_MAX];
   }
 
@@ -4752,15 +3722,11 @@
     return { n, p: t - E.origin - n * TICK_MS };
   }
 
-  function tickAutoNoteReply(t, kind, targetId, quality = {}) {
+  function tickAutoNoteReply(t, kind, targetId) {
     const E = state.tickEngine;
     if (E.origin == null) return;
-    const shot = quality.trusted ? quality.shot : null;
-    const { n, p } = shot
-      ? { n: shot.n, p: t - shot.o - shot.n * TICK_MS }
-      : tickAutoPhase(t);
-    E.auto.replies.push({ n, p, kind, target: targetId, trusted: quality.trusted === true,
-      reason: quality.reason || "unattributed", shot: shot ? { ...shot } : null });
+    const { n, p } = tickAutoPhase(t);
+    E.auto.replies.push({ n, p, kind, target: targetId });
     while (E.auto.replies.length > 80) E.auto.replies.shift();
   }
 
@@ -4825,35 +3791,30 @@
   }
 
   function tickAutoSample(p, after) {
-    if (state.punchIsolation.enabled) return;
     const A = state.tickEngine.auto;
     if (!tickSampleOk(p)) return;
-    A.samples.push({ p, after, quality: 1 });
+    A.samples.push({ p, after });
     while (A.samples.length > TICK_AUTO_SAMPLES) A.samples.shift();
   }
 
-  function tickAutoRace(outcome, n, ourP, rivalP, step = null, learningReason = "") {
+  function tickAutoRace(outcome, n, ourP, rivalP, step = null) {
     const A = state.tickEngine.auto;
-    const delta = state.punchIsolation.enabled ? 0 : step == null ? { win: -1, rescued: 3, early: 4, late: -3 }[outcome] || 0 : step;
-    if (state.punchIsolation.enabled) learningReason = "punch_isolation";
-    A.races.push({ n, outcome, ourP, rivalP, learned: delta !== 0, learningReason });
+    A.races.push({ n, outcome, ourP, rivalP });
     while (A.races.length > 40) A.races.shift();
     if (outcome === "win") A.wins++;
     else if (outcome === "rescued") A.rescued++;
     else if (outcome === "early") A.early++;
-    else if (outcome === "late") A.late++;
-    else A.lost++;
+    else A.late++;
     A.lastOutcome = outcome;
-    if (state.timing.tick.auto && delta !== 0) {
+    if (state.timing.tick.auto) {
+      const delta = step == null ? { win: -1, rescued: 3, early: 4, late: -3 }[outcome] : step;
       const [lo, hi] = tickAutoMarginBounds();
       A.margin = Math.max(lo, Math.min(hi, A.margin + delta));
     }
-    if (!delta) A.learningHeld++;
     A.dirty = true;
     sendDiagnostic("tick_race", {
       tick: n, outcome, ourPhase: ourP, rivalPhase: rivalP,
-      boundary: Math.round(A.B), margin: A.margin, sigma: Math.round(A.sigma), cooldown: A.cooldown,
-      learned: delta !== 0, learningReason, punchIsolation: state.punchIsolation.enabled
+      boundary: Math.round(A.B), margin: A.margin, sigma: Math.round(A.sigma), cooldown: A.cooldown
     });
   }
 
@@ -4872,10 +3833,9 @@
     for (const id of changed) {
       // Someone else hit it nearby: its 144s mean nothing here.
       if (A.thirdParty.some((m) => m.id === id && m.n >= n - 5 && m.n <= n)) continue;
-      // Keep observations, but a sole contact change cannot identify an
-      // untagged rejection that might belong to another engine/manual click.
+      // A 144 we could not match goes to the only enemy that changed.
       const ours = A.replies
-        .filter((r) => r.n === n && r.target === id)
+        .filter((r) => r.n === n && (r.target === id || (r.target < 0 && r.kind === "reject" && changed.length === 1)))
         .sort((a, b) => a.p - b.p);
       const rival = A.rivalHits
         .filter((r) => r.n === n && r.attacker === id)
@@ -4883,24 +3843,17 @@
       if (cur.get(id)) tickAutoNewContact(n, ours, rival, id);
       else tickAutoLostContact(ours);
     }
-    if (!state.punchIsolation.enabled) A.B = tickAutoFitBoundary(A.samples, A.boundaryPrior);
+    A.B = tickAutoFitBoundary(A.samples);
     A.dirty = true;
   }
 
   function tickAutoNewContact(n, ours, rival, id = null) {
     const A = state.tickEngine.auto;
-    // 02/10 (v6_61): reply phases are read on the batch grid, which already
-    // carries the downlink. A 144 is answered on landing and comes back one
-    // downlink later - like the batch - so its grid phase IS its landing (the
-    // reply matcher finds our 144s at the aimed phase +-3 ms live). v6_58
-    // subtracted the RTT again: before-samples fell outside the window and late
-    // 144s (REACT/RETRY, ~T+170) became after-samples at ~T-10, so B sank to its
-    // floor (-10) and Auto aimed at T-3.
     // After our hit the enemy is down, after its hit we are: later 144s say
     // nothing about the switch.
     const firstHit = ours.find((r) => r.kind === "hit") || null;
     const stop = Math.min(firstHit ? firstHit.p : Infinity, rival ? rival.p : Infinity);
-    const early = ours.filter((r) => r.kind === "reject" && r.trusted === true && r.p < stop);
+    const early = ours.filter((r) => r.kind === "reject" && r.p < stop);
     for (const r of early) tickAutoSample(r.p, false);
     // 27/09: a 211 phase is landing + hold (0-150 ms), not the switch: it pushed B
     // to ~12 when the switch is ~T+0..4. Sample the landing of our accepted click
@@ -4916,29 +3869,26 @@
     const aimedEarly = early.filter((r) => r.p >= -150);
     let outcome = "";
     if (firstHit && (!rival || firstHit.p < rival.p)) outcome = aimedEarly.length ? "rescued" : "win";
-    else if (rival) outcome = aimedEarly.length && A.cooldown !== "none" ? "early" : "loss";
+    else if (rival) outcome = aimedEarly.length && A.cooldown !== "none" ? "early" : "late";
     else if (aimedEarly.length) outcome = "early";
     if (!outcome) return;
     // Only the click aimed at this tick says something about the aim: a late
     // reaction that wins, or a tick we did not click, must not move it.
     const E = state.tickEngine;
-    const aimed = E.shots.find((x) => x.n === n && x.k === 0 && x.b === 0 && x.ok && !x.reactive &&
-      (id == null || x.targetId === id));
+    const aimed = E.shots.find((x) => x.n === n && x.k === 0 && x.b === 0 && x.ok && !x.reactive);
+    // A valid hit is held 50-160 ms before its 211 (dual-lab July: 185 of 185,
+    // idle defender) and held hits resolve in landing order (who fires 30+ ms
+    // first wins 95%). So a hit phase is aim + hold, and a rival hit while our
+    // aimed click drew no 144 means the rival landed before our aim.
     let step = 0;
-    let learningReason = rival ? "unattributed_loss" : "unattributed_win";
     if (aimed) {
       const window = 3 * A.sigma + 15;
-      const samePrimary = (r) => r.shot && r.shot.n === aimed.n && r.shot.k === 0 && r.shot.b === 0 &&
-        r.shot.targetId === aimed.targetId && r.shot.sentAt === aimed.sentAt;
-      if (aimedEarly.some((r) => samePrimary(r) && Math.abs(r.p - aimed.phase) <= window)) {
-        step = 4;
-        learningReason = "trusted_primary_reject";
-      } else if (firstHit?.trusted && samePrimary(firstHit) && accepted != null && (!rival || firstHit.p < rival.p)) {
-        step = -1;
-        learningReason = "unique_primary_hit";
-      }
+      const rejected = A.replies.some((r) => r.n === n && r.kind === "reject" && r.target === aimed.targetId && Math.abs(r.p - aimed.phase) <= window);
+      if (aimedEarly.some((r) => Math.abs(r.p - aimed.phase) <= window)) step = 4; // our aim was before the switch
+      else if (firstHit && (id == null || aimed.targetId === id) && firstHit.p - aimed.phase >= -window && firstHit.p - aimed.phase <= 200 && (!rival || firstHit.p < rival.p)) step = -1;
+      else if (rival && (rival.p < aimed.phase || !rejected)) step = -3; // the rival landed before our aim
     }
-    tickAutoRace(outcome, n, firstHit ? firstHit.p : early[0] ? early[0].p : null, rival ? rival.p : null, step, learningReason);
+    tickAutoRace(outcome, n, firstHit ? firstHit.p : early[0] ? early[0].p : null, rival ? rival.p : null, step);
   }
 
   // Lost contact: hits were processed before the switch. With no hit at all,
@@ -4947,23 +3897,23 @@
     const hits = ours.filter((r) => r.kind === "hit");
     // 27/09: a hit landed before the switch, but its 211 phase adds the hold: no sample.
     if (hits.length) return;
-    for (const r of ours) if (r.trusted === true) tickAutoSample(r.p, true);
+    for (const r of ours) tickAutoSample(r.p, true);
   }
 
-  // Only a uniquely attributable primary can supply its armed landing phase.
-  // Absence of a 144 does not identify the winner of primary/repeat/fallback.
+  // Landing phase of the click aimed at tick n that drew no 144 and whose hit
+  // resolved after it (hold 0-200 ms): that click landed after the switch.
   function tickAutoAcceptedLanding(n, id, hitPhase) {
     const E = state.tickEngine;
     const A = E.auto;
-    const hit = A.replies.find((r) => r.n === n && r.kind === "hit" && r.trusted &&
-      (id == null || r.target === id) && Math.abs(r.p - hitPhase) < 0.001);
-    const s = hit?.shot;
-    if (!s || s.k !== 0 || s.b !== 0 || s.reactive || s.seq !== state.seq) return null;
-    return s.phase + s.late;
+    const window = 3 * A.sigma + 15;
+    const s = E.shots.find((x) => x.n === n && x.k === 0 && x.b === 0 && x.ok && !x.reactive && (id == null || x.targetId === id));
+    if (!s) return null;
+    if (A.replies.some((r) => r.n === n && r.kind === "reject" && r.target === s.targetId && Math.abs(r.p - s.phase) <= window)) return null;
+    const hold = hitPhase - s.phase;
+    return hold >= -window && hold <= 200 ? s.phase : null;
   }
 
   function tickAutoCooldown(t) {
-    if (state.punchIsolation.enabled) return;
     const E = state.tickEngine;
     const done = E.bursts.filter((b) => t - b.at > 1500 && b.sent >= 2 && b.replies >= 1).slice(-20);
     if (done.length < 6) return;
@@ -5025,7 +3975,6 @@
 
   function tickAutoSummary() {
     const A = state.tickEngine.auto;
-    const st = state.tickEngine.stats;
     const eff = tickEffective();
     const recent = A.races.slice(-20);
     const rival = A.rival.slice().sort((a, b) => a - b);
@@ -5040,18 +3989,12 @@
       marginMs: Math.round(A.margin),
       sigmaMs: Math.round(A.sigma),
       corrMs: Math.round(state.tickEngine.corr),
-      calibrated: st.calibrated,
-      calSkippedLate: st.calSkippedLate,
-      calSkippedAmbiguous: st.calSkippedAmbiguous,
-      hitsUnmatched: st.hitsUnmatched,
       cooldown: A.cooldown,
-      races: A.wins + A.rescued + A.early + A.late + A.lost,
+      races: A.wins + A.rescued + A.early + A.late,
       wins: A.wins + A.rescued,
       rescued: A.rescued,
       early: A.early,
       late: A.late,
-      lost: A.lost,
-      learningHeld: A.learningHeld,
       recentWinRate: recent.length
         ? Math.round((100 * recent.filter((r) => r.outcome === "win" || r.outcome === "rescued").length) / recent.length)
         : null,
@@ -5101,7 +4044,6 @@
   }
 
   function exitLoad() {
-    if (state.punchIsolation.enabled) return;
     const X = state.exitMode;
     if (X.loaded) return;
     X.loaded = true;
@@ -5126,7 +4068,6 @@
   }
 
   function exitSave(t, force = false) {
-    if (state.punchIsolation.enabled) return;
     const X = state.exitMode;
     if (!force && (!X.dirty || t - X.savedAt < 15000)) return;
     X.savedAt = t;
@@ -5158,20 +4099,7 @@
   }
 
   // Engine shots landing before our coco ends are useless: hold them back.
-  function exitSyncSelfCoco() {
-    const X = state.exitMode;
-    const c = X.cocoByAccount.get(selfAccountId());
-    if (!X.self && c && c.endAt > now()) {
-      // The effect may precede our avatar in the renderer's loading queue.
-      // Recover its original end, never restart its duration at identification.
-      X.self = { ...c };
-      X.plan = null;
-      exitArm();
-    }
-  }
-
   function exitBlocksLanding(landingLocal) {
-    exitSyncSelfCoco();
     const self = state.exitMode.self;
     return Boolean(self) && landingLocal < self.endAt + state.exitMode.U - 5;
   }
@@ -5180,14 +4108,9 @@
     const X = state.exitMode;
     const s = state.tickEngine.auto.sigma;
     if (state.timing.tick.single) {
-      // One click just after the unlock (processed from E+5 in July), plus a
-      // backup after the server gap. 05/10 Ring final: the only exit click
-      // landed a hair before the unlock (no 144, no 211), the reaction was held
-      // because it landed inside the coco, and the rival waiting at the edge hit
-      // at E+230 with nothing of ours in between.
+      // One click just after the unlock (processed from E+5 in July).
       const lead = -Math.max(6, Math.round(s));
-      const first = Math.round(X.U - lead);
-      return { shots: [{ phase: first, k: 0, b: 0 }, { phase: first + GUARD_LOCK_MS + 5, k: 1, b: 0 }], lead, gap: 3, count: 1 };
+      return { shots: [{ phase: Math.round(X.U - lead), k: 0, b: 0 }], lead, gap: 3, count: 1 };
     }
     // Up to 8 requests spread over U - lead .. U + lead (+6 ms of slack).
     const lead = Math.max(4, Math.round(1.5 * s));
@@ -5204,7 +4127,6 @@
   }
 
   function exitArm() {
-    if (state.punchIsolation.enabled) return;
     const X = state.exitMode;
     const self = X.self;
     if (!X.enabled || !self) return;
@@ -5222,7 +4144,6 @@
       if (at >= t - 2) fires.push({ index, dueAt: at, delayMs: Math.max(0, at - t - SPIN_EARLY_MS) });
     });
     X.plan.armed = true;
-    X.plan.seq = state.seq;
     cocoGuardArm(X.plan.endAt, "COCO");
     try {
       ensureTimingWorker().postMessage({
@@ -5231,7 +4152,7 @@
         targetId: -1,
         stepAt: 0,
         stepMs: 0,
-        seq: state.seq,
+        seq: 0,
         leadMs: 0,
         window: "EXIT",
         fires
@@ -5242,13 +4163,8 @@
   // The best threat at the landing (threatPick); if nobody can be in contact,
   // the enemy closest to us within 2 tiles.
   function exitPickTarget(landing) {
-    // 02/10 (v6_62): same bar as the tick engine's blind click. At 0.2 the exit
-    // missed the rival walking in at the unlock and fell back to the closest one:
-    // 7 of 19 coco-exit deaths since 01/10 were an exit click at another id, and
-    // the tick click (often at the killer) left 3 ms later, inside the 100 ms gap.
-    const pick = threatPick(landing, state.timing.tick.single ? TICK_BLIND_MIN_P : 0.2);
+    const pick = threatPick(landing, 0.2);
     if (pick) return pick.id;
-    if (timingSelectedOnly()) return null;
     const selfId = inferSelfId();
     const self = ensureActorFromRenderer(selfId);
     if (!self) return null;
@@ -5265,45 +4181,20 @@
   }
 
   function exitOnWorkerFire(msg) {
-    if (state.punchIsolation.enabled) return;
     const X = state.exitMode;
     const plan = X.plan;
     if (!plan || plan.done || `EXIT:${Math.round(plan.endAt)}` !== String(msg.planId || "")) return;
-    if (!X.enabled || (plan.seq != null && plan.seq !== state.seq) ||
-        (msg.seq != null && msg.seq !== state.seq)) return;
     const shot = plan.shots[msg.index | 0];
     if (!shot) return;
-    if (plan.target != null && plan.avatar && (!timingTargetAllowed(plan.target, plan.avatar) || !currentTargetAvatar(plan.target, plan.avatar))) {
-      plan.target = null;
-      plan.avatar = null;
-    }
-    if (shot.k > 0 && plan.target != null) {
-      // Follow-up: not after our hit (we are in the punch animation), and at
-      // whoever is the threat now if the first target left or went down.
-      if (plan.replies.some((r) => r.kind === "hit") || state.tickEngine.selfOut) return;
-      const E = state.tickEngine;
-      const landing = now() + rttEstimateMs() + E.corr;
-      const me = ensureActorFromRenderer(inferSelfId());
-      const a = ensureActorFromRenderer(plan.target);
-      const stillThere = me && a && !E.out.has(plan.target) && !rivalLocked(plan.target, landing) && lateralAdjacent(me.toX, me.toY, a.toX, a.toY);
-      if (!stillThere) {
-        const again = exitPickTarget(landing);
-        if (again == null) return;
-        plan.target = again;
-        plan.avatar = currentTargetAvatar(again);
-      }
-    }
     if (plan.target == null) {
       // Judged when our coco ends: a rival stunned with us wakes up with us.
       plan.target = exitPickTarget(Math.max(plan.endAt + shot.phase, plan.endAt + 25));
       if (plan.target == null) {
+        plan.done = true;
         X.noTarget++;
         X.lastOutcome = "sin_contacto";
-        sendDiagnostic("exit_fire", { endAt: plan.endAt, phase: shot.phase, k: shot.k, b: shot.b,
-          targetId: -1, ok: false, why: "sin_contacto", U: X.U });
         return;
       }
-      plan.avatar = currentTargetAvatar(plan.target);
     }
     spinUntil(Number(msg.dueAt));
     if (state.timing.tick.single) {
@@ -5311,24 +4202,20 @@
       const a = ensureActorFromRenderer(plan.target);
       if (me && a) faceBeforeClick(faceSide(me.toX, me.toY, a.toX, a.toY));
     }
-    const ok = firePunch(plan.target, "EXIT", { bypassThrottle: true, avatar: plan.avatar });
+    const ok = firePunch(plan.target, "EXIT", { bypassThrottle: true });
     plan.sent.push({ phase: shot.phase, ok, at: now() });
     sendDiagnostic("exit_fire", { endAt: plan.endAt, phase: shot.phase, k: shot.k, b: shot.b, targetId: plan.target, ok, U: X.U });
   }
 
-  // 184/120 is UserCocoPotion: coco types 32..41 start when active is
-  // nonzero. The native end packet keeps a positive effect code but active=0.
+  // 184/120 [accountId, type, type]: coco on (type > 0) or off (type 0).
   function exitNoteCoco(t, fields) {
     const X = state.exitMode;
     const acc = Number(fields?.[0]);
     const type = Number(fields?.[1]);
     if (!Number.isFinite(acc) || !Number.isFinite(type)) return;
     const self = acc === selfAccountId();
-    const ended = type === 0 || (fields.length >= 3 && Number(fields[2]) === 0);
-    if (!ended) {
-      if (type < 32 || type > 41) return;
+    if (type > 0) {
       const endAt = t + exitCocoMs(type);
-      cocoThrowConfirmed(acc, t);
       X.cocoByAccount.set(acc, { type, start: t, endAt });
       if (self) {
         X.self = { type, start: t, endAt };
@@ -5342,11 +4229,7 @@
     }
     const was = X.cocoByAccount.get(acc);
     X.cocoByAccount.delete(acc);
-    if (!self && was) {
-      const id = accountToId(acc);
-      if (id != null) runlockArm(id, t + 20);
-    }
-    if (!state.punchIsolation.enabled && was && !was.resync && was.type >= 32 && was.type <= 41 && t - was.start > 1000) {
+    if (was && t - was.start > 1000) {
       const prev = X.durByType[was.type] || EXIT_DEFAULT_COCO_MS;
       X.durByType[was.type] = Math.round(0.7 * prev + 0.3 * (t - was.start));
       X.dirty = true;
@@ -5384,8 +4267,6 @@
 
   // Once the burst's replies are all in: learn U and score the exit.
   function exitPump() {
-    exitSyncSelfCoco();
-    if (state.punchIsolation.enabled) return;
     const X = state.exitMode;
     const plan = X.plan;
     const t = now();
@@ -5396,12 +4277,7 @@
     }
     plan.done = true;
     const burst = plan.sent.filter((s) => s.ok && s.phase < X.U + 90);
-    // The single-mode backup lands at U+111: its replies say nothing about U.
-    // A reject answers on landing (< U+90); a hit of the first click comes after
-    // its hold (50-160 ms), a hit of the backup not before U+160.
-    const first = plan.replies
-      .filter((r) => (r.kind === "reject" ? r.p < X.U + 90 : r.p < X.U + 160))
-      .sort((a, b) => a.p - b.p)[0] || null;
+    const first = plan.replies.slice().sort((a, b) => a.p - b.p)[0] || null;
     if (!plan.sent.length) return;
     if (first) X.processed++;
     else X.silent++;
@@ -5617,111 +4493,9 @@
     }
   }
 
-  // ---- Structure probe (30/09) -------------------------------------------------
-  // Reverse the server's 211 parser by firing STRUCTURAL variants of the upper at
-  // players NOT in contact with us (3+ tiles away), exactly like labCooldownProbe:
-  // every accepted request comes back as a harmless 144, a rejected/dropped one
-  // is silent, and nobody is actually punched. This never runs by itself; it is
-  // driven from harness/run_struct_probe.js and does not touch real fights.
-  //
-  // The money hypothesis: the wire packet has no length prefix (177 id .. 176),
-  // so the server may parse SEVERAL 211 frames glued into one WSS message in a
-  // single pass, before the 100 ms gap updates. If `glued2` gets 2 replies while
-  // `base` gets 1, that is a candidate to land two held punches from one gap.
-  // Variants:
-  //   base        one 211[id]                         -> expect 1 reply (sanity)
-  //   glued2      two 211[id] frames in ONE message   -> 2 replies = multi-parse
-  //   glued3      three 211[id] frames in ONE message
-  //   twomsg      two 211[id] as two messages, 0 ms   -> control for glued2
-  //   extra_param 211[id, "1"]                         -> 144 = lax parse, silent = strict
-  //   type1       new P(211, 1)[id]                    -> routed elsewhere?
-  //   two_ids     211[idA, idB] one frame (2 targets)  -> does one frame carry two?
-  function structFrameString(P, id, { type = 0, sub = 0, params } = {}) {
-    const pk = type > 0 ? (sub > 0 ? new P(211, type, sub) : new P(211, type)) : new P(211);
-    const list = params || [id];
-    for (const p of list) pk.appendParameter(p);
-    return pk.toString();
-  }
-
-  async function labStructProbe(options = {}) {
-    if (state.lab.running) return { error: "busy" };
-    const P = state.providers.packet?.exported;
-    const socket = providerInstance(state.providers.socket);
-    if (!P || !socket || typeof socket.sendServerMessage !== "function") return { error: "no_socket" };
-    const rounds = Math.max(1, Math.min(20, Number(options.rounds) || 6));
-    const gapMs = Math.max(160, Math.min(600, Number(options.gapMs) || 220)); // > server gap, so no cooldown bleed
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-    const sendRaw = (str) => socket.sendServerMessage({ id: 211, toString: () => str });
-    const variants = ["base", "glued2", "glued3", "twomsg", "extra_param", "type1", "two_ids"];
-    // clean trials only (not locked, not in real contact) feed the verdict; the
-    // rest are kept apart so a session where the user is being hunted still
-    // produces a readable table. per = raw per-trial reply counts.
-    const acc = Object.fromEntries(variants.map((v) => [v, { trials: 0, clean: 0, sent: 0, r144: 0, r211: 0, cleanR144: 0, cleanR211: 0, max1msg: 0, per: [] }]));
-    state.lab.running = true;
-    let aborted = "";
-    const selfId0 = inferSelfId();
-    const nearContact = () => {
-      const me = ensureActorFromRenderer(selfId0);
-      if (!me) return true;
-      for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
-        const id = asId(rawId);
-        if (id == null || id === selfId0) continue;
-        const a = ensureActorFromRenderer(id);
-        if (a && Math.max(Math.abs(a.toX - me.toX), Math.abs(a.toY - me.toY)) <= 1) return true;
-      }
-      return false;
-    };
-    try {
-      for (let r = 0; r < rounds; r++) {
-        for (const v of variants) {
-          const targets = labProbeTargets();
-          if (targets.length < (v === "two_ids" ? 2 : 1)) { aborted = "need_targets_3_tiles_away"; continue; }
-          const id = targets[0], id2 = targets[1] ?? targets[0];
-          const one = structFrameString(P, id);
-          let sends; // each element is one WSS message (a string)
-          if (v === "base") sends = [one];
-          else if (v === "glued2") sends = [one + one];
-          else if (v === "glued3") sends = [one + one + one];
-          else if (v === "twomsg") sends = [one, one];
-          else if (v === "extra_param") sends = [structFrameString(P, id, { params: [id, "1"] })];
-          else if (v === "type1") sends = [structFrameString(P, id, { type: 1 })];
-          else if (v === "two_ids") sends = [structFrameString(P, id, { params: [id, id2] })];
-          const dirty = state.tickEngine.selfOut || selfLocked(now()) || nearContact();
-          state.lab.replies = [];
-          const start = now();
-          for (const s of sends) { try { sendRaw(s); } catch {} }
-          await sleep(900);
-          const replies = state.lab.replies.filter((x) => x.t >= start);
-          const r144 = replies.filter((x) => x.id === 144).length;
-          const r211 = replies.filter((x) => x.id === 211).length;
-          const a = acc[v];
-          a.trials++;
-          a.sent += sends.length;
-          a.r144 += r144;
-          a.r211 += r211;
-          if (!dirty) { a.clean++; a.cleanR144 += r144; a.cleanR211 += r211; a.max1msg = Math.max(a.max1msg, Math.round((r144 + r211) / sends.length)); }
-          a.per.push({ d: dirty ? 1 : 0, s: sends.length, r144, r211 });
-          sendDiagnostic("lab_struct", { variant: v, targetId: id, dirty: dirty ? 1 : 0, sends: sends.length, r144, r211 });
-          await sleep(gapMs);
-        }
-      }
-      return { rounds, gapMs, aborted, variants: acc };
-    } finally {
-      state.lab.running = false;
-      state.lab.replies = [];
-    }
-  }
-
   function tickHubSummary() {
     const E = state.tickEngine;
-    const selection = timingSelectedOnly() ? freshTimingSelection() : null;
     return {
-      targetMode: state.timing.targetMode,
-      fixedPhaseMs: state.punchIsolation.enabled ? state.punchIsolation.phaseMs : null,
-      selectedTargetId: selection?.id ?? -1,
-      selectedTargetName: selection?.name || "",
-      lastTargetId: state.lastAutomaticPunch?.targetId ?? -1,
-      lastTargetReason: state.lastAutomaticPunch?.reason || "",
       enabled: tickEnabled(),
       synced: E.origin != null && E.batches.length >= 1,
       coherence: Number(E.coherence.toFixed(2)),
@@ -5743,7 +4517,6 @@
     const done = E.bursts.filter((b) => t - b.at > 1500 && b.sent > 0).slice(-20);
     const avg = (key) => (done.length ? Number((done.reduce((s, b) => s + b[key], 0) / done.length).toFixed(2)) : null);
     return {
-      punchIsolation: { enabled: state.punchIsolation.enabled, phaseMs: state.punchIsolation.phaseMs },
       bursts: done.length,
       burstSentAvg: avg("sent"),
       burstRepliesAvg: avg("replies"),
@@ -5761,10 +4534,9 @@
       selfOut: E.selfOut,
       muted: [...E.mutedUntil].filter(([, u]) => u > now()).map(([id]) => id),
       lockMs: Math.max(0, Math.round(E.selfLockEnd - now() - rttEstimateMs() - E.corr)),
-      lockKind: E.selfLockKind,
       unlock: { ...E.unlock },
       runlock: { ...E.runlockStats, pending: E.runlock.size },
-      stepWalk: { enabled: state.stepWalk.enabled, packetReady: typeof state.providers.packet?.exported === "function", goal: state.stepWalk.goal, walks: state.stepWalk.walks, steps: state.stepWalk.steps, gaveUp: state.stepWalk.gaveUp },
+      stepWalk: { enabled: state.stepWalk.enabled, goal: state.stepWalk.goal, walks: state.stepWalk.walks, steps: state.stepWalk.steps, gaveUp: state.stepWalk.gaveUp },
       rbGate: { received: state.rbGate.received, sent: state.rbGate.sent, replaced: state.rbGate.replaced, repeats: state.rbGate.repeats },
       sweep: { ...E.sweepStats },
       auto: tickAutoSummary(),
@@ -5772,15 +4544,12 @@
     };
   }
 
-  function onMoveStep(movedId, x, y, stepMs, orient, direction, contFlag, arrivalAt) {
-    const actor = noteActorStep(movedId, x, y, stepMs, orient, arrivalAt);
+  function onMoveStep(movedId, x, y, stepMs, orient, direction, contFlag) {
+    const actor = noteActorStep(movedId, x, y, stepMs, orient);
     if (!actor) return;
-    // Later frames of a batch can change both the chosen rival and a cached
-    // "no threat" decision. Never fire with positions from an earlier frame.
-    if (tickEnabled()) tickPreflightInvalidate();
     const dur = actor.stepMs > 0 ? actor.stepMs : 600;
     const selfId = inferSelfId();
-    const sel = tickEnabled() ? -1 : selectedId();
+    const sel = selectedId();
 
     if (direction === "out" && movedId === selfId) {
       moveDelaySchedule(actor.startAt, dur);
@@ -5789,7 +4558,9 @@
     }
 
     if (timingModeActive() && timingSourceMode() === "STATE") {
-      scheduleStatePunch(movedId, direction === "out" ? "out_move" : "in_move");
+      if (movedId === sel || (movedId !== selfId && sel >= 0)) {
+        scheduleStatePunch(movedId, direction === "out" ? "out_move" : "in_move");
+      }
     }
 
     if (timingModeActive() && timingSourceMode() === "GRID") {
@@ -5834,125 +4605,8 @@
     }
   }
 
-  // Native onWorkerMessage calls handleReceivedBytes before its RAF renderer
-  // queue. Keep the worker's original timestamp even if a future client or a
-  // heavy batch delays that socket-entry hook; a frame contributes only once.
-  // Worker shapes:
-  // {type:"received", bytes: ArrayBuffer} / {type:"received-batch", packets}.
-  const earlyStamps = new Map(); // opcode -> FIFO of worker-arrival times
-  const earlySteps = new Map(); // player frame fingerprint -> FIFO arrivals
-  function playerStepKey(packet) {
-    return JSON.stringify((packet.fields || []).map(String));
-  }
-
-  function exitNoteResync(t, fields) {
-    // AnimResync kind 2 is COCO. Its param is an animation parameter, not
-    // the type code in UserCocoPotion; only its remaining time is reusable.
-    const id = asId(fields?.[0]);
-    const acc = Number(fields?.[1]);
-    const kind = Number(fields?.[2]);
-    const age = Number(fields?.[5]);
-    const duration = Number(fields?.[6]);
-    if (kind !== 2 || id == null || id < 0 || !(acc > 0) || !Number.isFinite(acc) || !Number.isFinite(age) ||
-        !Number.isFinite(duration) || age < 0 || duration <= age || duration > 30000) return;
-    const avatar = sceneRenderer()?.avatars?.get?.(id);
-    if (avatar && Number(avatar.avatarInfo?.id) !== acc) return;
-    const X = state.exitMode;
-    const endAt = t + duration - age;
-    const previous = X.cocoByAccount.get(acc);
-    const coco = previous ? { ...previous, endAt } : { type: null, resync: true, start: t - age, endAt };
-    X.cocoByAccount.set(acc, coco);
-    if (acc === selfAccountId()) {
-      if (!X.self || Math.abs(X.self.endAt - endAt) > 25) {
-        X.self = { ...coco };
-        X.plan = null;
-        exitArm();
-      }
-    } else if (avatar) runlockArm(id, endAt + 20);
-    tickPreflightInvalidate();
-  }
-  function playerStepPacket(packet) {
-    return packet.id === 182 && asId(packet.fields?.[0]) === 1 &&
-      asId(packet.fields?.[1]) != null && Number.isFinite(Number(packet.fields?.[2])) &&
-      Number.isFinite(Number(packet.fields?.[3]));
-  }
-  function shiftEarlyStep(packet, t) {
-    const key = playerStepKey(packet);
-    const q = earlySteps.get(key);
-    if (!q) return null;
-    while (q.length && t - q[0] > 5000) q.shift();
-    const stamp = q.shift();
-    if (!q.length) earlySteps.delete(key);
-    return Number.isFinite(stamp) ? stamp : null;
-  }
-  let pendingRoundStartAt = 0;
-  function earlyInboundTap(data) {
-    if (!data || typeof data !== "object") return;
-    let frames = null;
-    if (data.type === "received" && data.bytes) frames = [data.bytes];
-    else if (data.type === "received-batch" && Array.isArray(data.packets)) frames = data.packets;
-    if (!frames) return;
-    const t = now();
-    let sawStep = false;
-    for (const bytes of frames) {
-      let pkt = null;
-      try { pkt = parsePacket(bytes); } catch {}
-      if (!pkt) continue;
-      stepClickObserve(pkt, t, "socket_worker");
-      if (playerStepPacket(pkt)) {
-        const key = playerStepKey(pkt);
-        const q = earlySteps.get(key) || [];
-        q.push(t);
-        while (q.length > 8) q.shift();
-        earlySteps.set(key, q);
-        while (earlySteps.size > 128) earlySteps.delete(earlySteps.keys().next().value);
-        sawStep = true;
-        continue;
-      }
-      if (pkt.id === 144 || pkt.id === 211) {
-        let q = earlyStamps.get(pkt.id);
-        if (!q) { q = []; earlyStamps.set(pkt.id, q); }
-        q.push(t);
-        if (q.length > 24) q.shift();
-      }
-    }
-    if (sawStep) tickNoteBatch(t);
-  }
-
-  function shiftEarlyStamp(id) {
-    const q = earlyStamps.get(id);
-    if (!q || !q.length) return null;
-    const t = q.shift();
-    return Number.isFinite(t) ? t : null;
-  }
-
-  function hookSocketWorkerEarly(instance, attempt = 0) {
-    try {
-      const worker = instance && instance.socketWorker;
-      if (!worker) return false;
-      if (worker.__bbEarlyTap && worker.onmessage === worker.__bbEarlyHandler) return true;
-      const original = worker.onmessage;
-      if (typeof original !== "function") return false;
-      worker.__bbEarlyTap = true;
-      worker.onmessage = function (ev) {
-        try { earlyInboundTap(ev && ev.data); } catch {}
-        return original.call(this, ev);
-      };
-      worker.__bbEarlyHandler = worker.onmessage;
-      return true;
-    } catch {}
-    if (attempt < 4) setTimeout(() => hookSocketWorkerEarly(instance, attempt + 1), 2000);
-    return false;
-  }
-
   function onPacket(packet, direction) {
     if (!packet) return;
-    if (direction === "in") stepClickObserve(packet, now(), "client_dispatch");
-    if (state.rawTap.on) {
-      const r = state.rawTap.ring;
-      r.push({ t: Math.round(now()), dir: direction, id: packet.id | 0, type: packet.type | 0, sub: packet.subType | 0, fields: Array.isArray(packet.fields) ? packet.fields.slice(0, 12) : [] });
-      if (r.length > state.rawTap.max) r.splice(0, r.length - state.rawTap.max);
-    }
     if (state.duel.on) duelRecord(packet, direction);
     state.packetBus.lastOpcode = packet.id | 0;
     state.packetBus.lastDir = direction;
@@ -5961,7 +4615,7 @@
     else state.packetBus.out++;
     sendPacketEvent(direction, packet);
 
-    if (direction === "out" && packet.id === 149) cocoThrowPending(packet.fields?.[1]); // budget only when its 184 confirms
+    if (direction === "out" && packet.id === 149) state.cocoGuard.used++; // every coco of ours counts (3 per round)
     if (direction === "out" && packet.id === 211) {
       state.outboundUpperSeq++;
       state.stats.fires++;
@@ -5987,17 +4641,13 @@
     // (v6_40 marked again at the roster 128/121: it also caught a real Ring player
     // created before it, 29/09. Lobby adds that sneak into the Ring: see notRingSlot.)
     // The tick phase is per room and per Ring round (23/09 capture).
-    if (direction === "in" && ((packet.id === 128 && packet.type === 120 && String(packet.fields?.[0]) !== "-1") || (packet.id === 160 && packet.type === 126))) {
+    if (direction === "in" && ((packet.id === 128 && packet.type === 120) || (packet.id === 160 && packet.type === 126))) {
       tickResetGrid(packet.id === 128 ? "room" : "gong");
       if (packet.id === 128) {
         state.tickEngine.lockUntil.clear();
         state.tickEngine.runlock.clear();
         state.attention.clear();
         state.actors.clear();
-        actorAvatars.clear();
-        actorAbsent.clear();
-        actorStepVersions.clear();
-        pendingRotations.clear();
         state.exitMode.self = null;
         state.exitMode.plan = null;
         state.exitMode.cocoByAccount.clear();
@@ -6006,38 +4656,9 @@
 
     if (direction === "in" && packet.id === 160 && packet.type === 123) autoRingOnStatus(packet.fields);
     // Room leave / pop — stop combat pumps so lobby doesn't keep spinning.
-    // 01/10: the round-END gong (160/126 one ms after 160/130 [1,0], before the
-    // winner) used to arm a wasted unlock click ~5 s before the real next gong.
-    // The start gong is the one followed by 160/130 [N, 300]; the end gong by
-    // 160/129. softReset stays for both (state hygiene); roundStartNote waits
-    // for the 300 confirmation (or a 250 ms fallback).
-    simonOnPacket(packet, direction);
-    if (packet.id === 160 && packet.type === 126) {
-      softResetCombat("room_126");
-      if (direction === "in") {
-        pendingRoundStartAt = now();
-        setTimeout(() => {
-          if (!pendingRoundStartAt) return;
-          roundStartNote(pendingRoundStartAt);
-          pendingRoundStartAt = 0;
-        }, 250);
-      }
-      return;
-    }
-    if (packet.id === 160 && packet.type === 125) {
-      softResetCombat("room_125");
-      return;
-    }
-    if (packet.id === 160 && packet.type === 130) {
-      if (pendingRoundStartAt && String((packet.fields || [])[1] ?? "") === "300") {
-        roundStartNote(pendingRoundStartAt);
-        pendingRoundStartAt = 0;
-      }
-      return;
-    }
-    if (packet.id === 160 && packet.type === 129) {
-      pendingRoundStartAt = 0; // end gong: the round is over, not starting
-      if (direction === "in") state.landingEliminated = false;
+    if (packet.id === 160 && (packet.type === 126 || packet.type === 125)) {
+      softResetCombat(`room_${packet.type}`);
+      if (direction === "in" && packet.type === 126) roundStartNote(now());
       return;
     }
 
@@ -6045,14 +4666,7 @@
       const f = packet.fields || [];
       const id = asId(f[0]);
       const o = Number(f[3]);
-      if (id != null) {
-        state.attention.set(id, { turnAt: now(), facing: o >= 1 && o <= 8 ? o : (state.attention.get(id)?.facing || 0) });
-        const key = rotationKey(id, f[1], f[2], f[3]);
-        // Native catch-up may discard older rotations. Retain the latest
-        // revision for this placement instead of assuming a one-to-one FIFO.
-        pendingRotations.set(key, { stepVersion: actorStepVersions.get(id) || 0 });
-        while (pendingRotations.size > 64) pendingRotations.delete(pendingRotations.keys().next().value);
-      }
+      if (id != null) state.attention.set(id, { turnAt: now(), facing: o >= 1 && o <= 8 ? o : (state.attention.get(id)?.facing || 0) });
     }
 
     if (packet.id === 182) {
@@ -6064,14 +4678,10 @@
         if (/^\d{5}$/.test(dest)) tickNoteWalkRequest(Number(dest.slice(0, 2)), Number(dest.slice(2, 4)), now());
         return;
       }
+      tickNoteBatch(now());
       // Walk mode: 1 = user, 2 = pet, 3 = NPC. Pet/NPC ids can collide with users.
       const mode = asId(fields[0]);
-      if (mode !== 1 || !playerStepPacket(packet)) return;
-      const earlyAt = shiftEarlyStep(packet, now());
-      const arrivalAt = earlyAt ?? now();
-      // The early sample may have been cleared by a room/gong frame preceding
-      // this step in the same batch. The original stamp deduplicates both taps.
-      tickNoteBatch(arrivalAt);
+      if (mode != null && mode !== 1) return;
       const movedId = asId(fields[1]);
       const x = Number(fields[2]);
       const y = Number(fields[3]);
@@ -6090,23 +4700,15 @@
       if (movedId != null && movedId === inferSelfId() && Number.isFinite(x) && Number.isFinite(y)) stepWalkOnSelfStep(x, y);
       if (movedId != null && Number.isFinite(x) && Number.isFinite(y)) {
         const dur = Number.isFinite(stepMs) && stepMs > 0 ? stepMs : 600;
-        onMoveStep(movedId, x, y, dur, orient, direction, contFlag, arrivalAt);
+        onMoveStep(movedId, x, y, dur, orient, direction, contFlag);
         reactSchedule();
         reachProbeSchedule();
-        cocoSelfOnStep(movedId);
-        tickPreflightSchedule();
       }
       return;
     }
 
     if (packet.id === 184 && packet.type === 120 && direction === "in") {
       exitNoteCoco(now(), packet.fields || []);
-      tickPreflightInvalidate();
-      return;
-    }
-
-    if (packet.id === 215 && direction === "in") {
-      exitNoteResync(now(), packet.fields || []);
       return;
     }
 
@@ -6119,14 +4721,12 @@
         noteRoster(defender);
         sendResolveEvent(attacker, defender);
         landingAdaptOnResolve(attacker);
-        const t = shiftEarlyStamp(211) ?? now();
+        const t = now();
         const selfId = inferSelfId();
         if (state.lab.running && attacker === selfId) state.lab.replies.push({ t, id: 211 });
         state.tickEngine.down.set(defender, t + 2500);
         state.tickEngine.out.add(defender);
-        state.tickEngine.outAvatars.set(defender, sceneRenderer()?.avatars?.get?.(defender) || null);
         hitLockNote(attacker, t, selfId);
-        tickPreflightInvalidate();
         if (defender === selfId) state.tickEngine.selfOut = true;
         tickAutoNoteHit(t, attacker, defender, selfId);
         if (attacker === selfId) silentAnswered();
@@ -6140,12 +4740,11 @@
     }
 
     if (packet.id === 144) {
-      const t = shiftEarlyStamp(144) ?? now();
       silentAnswered();
       state.stats.rejects++;
-      if (state.lab.running) state.lab.replies.push({ t, id: 144 });
-      exitNoteReply(t, "reject", -1);
-      tickOnServerReply(t, "reject");
+      if (state.lab.running) state.lab.replies.push({ t: now(), id: 144 });
+      exitNoteReply(now(), "reject", -1);
+      tickOnServerReply(now(), "reject");
       landingAdaptOnReject();
       return;
     }
@@ -6224,7 +4823,6 @@
 
   function hookSocket(provider) {
     const owner = provider.exported && provider.exported.prototype;
-    if (provider.instance) hookSocketWorkerEarly(provider.instance);
     safeWrap(owner, "sendServerMessage", "__bbFlashSendHook", (original) =>
       function hookedSend(packet) {
         try {
@@ -6251,84 +4849,20 @@
     const owner = provider.exported && provider.exported.prototype;
     safeWrap(owner, "moveUser", "__bbFlashMoveUserHook", (original) =>
       function hookedMoveUser(userSpaceId, x, y, orientation, stepMs) {
-        const result = original.apply(this, arguments);
         try {
           const id = asId(userSpaceId);
-          // Current native signature: (roomId, position, unusedFlag, instant).
-          // Ordinary movement is already clocked by packet 182. Only an
-          // authoritative instant placement may replace that packet's step.
-          if (id != null && x && typeof x === "object" && orientation === true &&
-              Number.isFinite(Number(x.x)) && Number.isFinite(Number(x.y))) {
-            const avatar = sceneRenderer()?.avatars?.get?.(id);
-            if (avatar) {
-              const at = Math.round(now());
-              state.actors.set(id, { fromX: Number(x.x) | 0, fromY: Number(x.y) | 0,
-                toX: Number(x.x) | 0, toY: Number(x.y) | 0, dirX: 0, dirY: 0,
-                startAt: at, endAt: at, stepMs: 0, moving: false,
-                orient: Number(x.z) || 0, key: `${id}:${x.x | 0},${x.y | 0}` });
-              actorAvatars.set(id, avatar);
-              tickPreflightInvalidate();
-            }
-          } else if (id != null && typeof x !== "object" && Number.isFinite(Number(x)) && Number.isFinite(Number(y))) {
+          if (id != null && Number.isFinite(Number(x)) && Number.isFinite(Number(y))) {
             const dur = Number(stepMs) > 0 ? Number(stepMs) : 600;
             onMoveStep(id, Number(x), Number(y), dur, Number(orientation) || 0, "in");
           }
         } catch {}
-        return result;
-      }
-    );
-    safeWrap(owner, "rotateUser", "__bbFlashRotateUserHook", (original) =>
-      function hookedRotateUser(userSpaceId, position) {
-        const result = original.apply(this, arguments);
-        try {
-          const id = asId(userSpaceId);
-          if (id != null && position && Number.isFinite(Number(position.x)) && Number.isFinite(Number(position.y))) {
-            const key = rotationKey(id, position.x, position.y, position.z);
-            const revision = pendingRotations.get(key);
-            // The renderer drains older frames after our socket tap. A 182
-            // already observed after this 135 must keep its newer step clock.
-            if (revision && revision.stepVersion !== (actorStepVersions.get(id) || 0)) return result;
-            const avatar = currentTargetAvatar(id);
-            if (avatar) {
-              refreshActorIdentities();
-              const at = Math.round(now());
-              state.actors.set(id, { fromX: position.x | 0, fromY: position.y | 0,
-                toX: position.x | 0, toY: position.y | 0, dirX: 0, dirY: 0,
-                startAt: at, endAt: at, stepMs: 0, moving: false,
-                orient: Number(position.z) || 0, key: `${id}:${position.x | 0},${position.y | 0}` });
-              actorAvatars.set(id, avatar);
-              tickPreflightInvalidate();
-            }
-          }
-        } catch {}
-        return result;
+        return original.apply(this, arguments);
       }
     );
   }
 
   function applyTimingConfig(msg) {
-    if (msg.enabled === true && stepClick.enabled) applyStepClickConfig({ enabled: false });
     const t = state.timing;
-    if ("targetMode" in msg) {
-      const targetMode = msg.targetMode === "SELECTED" ? "SELECTED" : "AUTO";
-      if (targetMode !== t.targetMode) {
-        t.targetMode = targetMode;
-        const E = state.tickEngine;
-        if (state.react.fallback?.timer) clearTimeout(state.react.fallback.timer);
-        state.react.fallback = null;
-        state.react.pending = false;
-        state.react.lastKey = "";
-        state.react.lateral.clear();
-        E.pendingBounce = null;
-        E.runlock.clear();
-        E.unlock.end = 0;
-        E.shots = [];
-        E.allShots = [];
-        E.tickTargets.clear();
-        E.tickTargets2.clear();
-        state.exitMode.plan = null;
-      }
-    }
     if ("enabled" in msg) t.enabled = Boolean(msg.enabled);
     if ("source" in msg) {
       let src = String(msg.source || "STEP").toUpperCase();
@@ -6426,7 +4960,6 @@
   }
 
   function applyStateConfig(msg) {
-    if (msg.enabled === true && stepClick.enabled) applyStepClickConfig({ enabled: false });
     if ("enabled" in msg) {
       state.stateCfg.enabled = Boolean(msg.enabled);
       if (state.stateCfg.enabled) {
@@ -6441,7 +4974,6 @@
   }
 
   function applyPulseConfig(msg) {
-    if (msg.enabled === true && stepClick.enabled) applyStepClickConfig({ enabled: false });
     if ("enabled" in msg) state.pulse.enabled = Boolean(msg.enabled);
     if ("interval" in msg) state.pulse.interval = clamp(msg.interval, 1, 5000);
     if ("burst" in msg) state.pulse.burst = clamp(msg.burst, 1, 16);
@@ -6518,72 +5050,10 @@
     sendConfig();
   }
 
-  function applyPunchIsolationConfig(msg) {
-    const I = state.punchIsolation;
-    const E = state.tickEngine;
-    const enabled = "enabled" in msg ? Boolean(msg.enabled) : I.enabled;
-    const phase = Number(msg.phaseMs);
-    const phaseMs = "phaseMs" in msg && Number.isFinite(phase) ? clamp(Math.round(phase), -20, 40) : I.phaseMs;
-    if (enabled !== I.enabled || phaseMs !== I.phaseMs) {
-      if (enabled && !I.enabled) {
-        // The Hub may connect before boot completes provider discovery.
-        // Read the ordinary estimator before freezing the experiment's lead.
-        tickAutoLoad();
-        exitLoad();
-        // Trial observations live in a separate estimator. Restoring this
-        // reference prevents a later normal save from persisting trial data.
-        I.saved = { auto: E.auto, corr: E.corr, errs: E.errs, lastErr: E.lastErr };
-        E.auto = { ...tickAutoInit(), loaded: true, B: E.auto.B, boundaryPrior: E.auto.boundaryPrior,
-          margin: E.auto.margin, sigma: E.auto.sigma, cooldown: E.auto.cooldown };
-        E.errs = [];
-      } else if (!enabled && I.enabled && I.saved) {
-        E.auto = I.saved.auto;
-        E.corr = I.saved.corr;
-        E.errs = I.saved.errs;
-        E.lastErr = I.saved.lastErr;
-        I.saved = null;
-        // Old pending observations cannot span an experiment's elapsed ticks.
-        E.auto.contact.clear();
-        E.auto.replies = [];
-        E.auto.rivalHits = [];
-        E.auto.thirdParty = [];
-        E.auto.lastContactN = null;
-        E.auto.lastRaceN = null;
-      }
-      I.enabled = enabled;
-      I.phaseMs = phaseMs;
-      state.seq = (state.seq + 1) | 0;
-      if (state.react.fallback?.timer) clearTimeout(state.react.fallback.timer);
-      state.react.fallback = null;
-      state.react.pending = false;
-      state.react.lastKey = "";
-      state.react.lateral.clear();
-      E.pendingBounce = null;
-      E.runlock.clear();
-      E.unlock.end = 0;
-      E.shots = [];
-      E.allShots = [];
-      E.tickTargets.clear();
-      E.tickTargets2.clear();
-      state.exitMode.plan = null;
-      clearTimingWorker("punch_isolation");
-      tickPreflightInvalidate();
-      syncPump();
-    }
-    sendDiagnostic("punch_isolation_config", { enabled: I.enabled, phaseMs: I.phaseMs });
-    sendState();
-  }
-
   function onHubMessage(msg) {
     if (!msg || typeof msg !== "object") return;
     state.stats.hubIn++;
     switch (String(msg.type || "")) {
-      case "punch_isolation_config":
-        applyPunchIsolationConfig(msg);
-        break;
-      case "step_click_config":
-        applyStepClickConfig(msg);
-        break;
       case "timing_config":
         applyTimingConfig(msg);
         break;
@@ -6601,7 +5071,6 @@
         sendConfig();
         break;
       case "move_punch_config":
-        if (msg.enabled === true && stepClick.enabled) applyStepClickConfig({ enabled: false });
         if ("enabled" in msg) state.moveDelay.enabled = Boolean(msg.enabled);
         if ("delayMs" in msg) state.moveDelay.delayMs = clamp(msg.delayMs, 0, 2000);
         if ("minMoveMs" in msg) state.moveDelay.minMoveMs = clamp(msg.minMoveMs, 0, 2000);
@@ -6622,7 +5091,6 @@
         sendConfig();
         break;
       case "auto_ring_config":
-        if (msg.enabled === true && stepClick.enabled) applyStepClickConfig({ enabled: false });
         state.autoRing.enabled = Boolean(msg.enabled);
         flagSave(AUTO_RING_KEY, state.autoRing.enabled);
         sendConfig();
@@ -6639,18 +5107,6 @@
         if ("repeatMs" in msg) state.tickAdv.repeatMs = Number(msg.repeatMs) > 0 ? clamp(Number(msg.repeatMs), 100, 400) : 0;
         sendConfig();
         break;
-      case "simon_config":
-        if (msg.enabled === true && stepClick.enabled) applyStepClickConfig({ enabled: false });
-        if ("enabled" in msg) state.simon.enabled = Boolean(msg.enabled);
-        if ("delayMs" in msg) state.simon.delayMs = clamp(Number(msg.delayMs) || 0, 0, 2000);
-        break;
-      case "free_fire_config":
-        if (msg.enabled === true && stepClick.enabled) applyStepClickConfig({ enabled: false });
-        // EXPERIMENTAL: disparo libre del tick (ignora el espaciado interno de ~100 ms).
-        if ("enabled" in msg) state.freeFire.enabled = Boolean(msg.enabled);
-        if ("gapMs" in msg) state.freeFire.gapMs = clamp(Number(msg.gapMs) || 25, 4, 200);
-        sendConfig();
-        break;
       case "requeue_hotkey_config":
         state.autoRing.hotkey = typeof msg.code === "string" ? msg.code.slice(0, 32) : "";
         if (state.autoRing.hotkey) requeueKeyInstall();
@@ -6658,6 +5114,13 @@
         break;
       case "requeue_now":
         requeueNow();
+        break;
+      case "emote_config":
+        if ("enabled" in msg) state.emotes.enabled = Boolean(msg.enabled);
+        if ("minMs" in msg) state.emotes.minMs = clamp(Number(msg.minMs) || 0, 5000, 600000);
+        if ("maxMs" in msg) state.emotes.maxMs = clamp(Number(msg.maxMs) || 0, state.emotes.minMs, 900000);
+        state.emotes.nextAt = 0;
+        sendConfig();
         break;
       case "render_off_config":
         state.renderOff.enabled = Boolean(msg.enabled);
@@ -6672,25 +5135,6 @@
         if ("enabled" in msg) state.cocoGuard.enabled = Boolean(msg.enabled);
         if ("leadMs" in msg) state.cocoGuard.leadMs = clamp(Number(msg.leadMs) || 0, 50, 2000);
         if ("max" in msg) state.cocoGuard.max = clamp(Number(msg.max) || 0, 0, 3);
-        if ("selfMode" in msg) state.cocoGuard.selfMode = msg.selfMode === "auto" ? "auto" : "off";
-        break;
-      case "coco_self":
-        // Manual self-coco from the Hub (the 3-per-round budget still applies).
-        if (state.tickEngine.selfOut || state.cocoGuard.used >= state.cocoGuard.max) {
-          sendDiagnostic("coco_self", { why: "manual", used: state.cocoGuard.used, ok: false, whyBlocked: state.tickEngine.selfOut ? "eliminado" : "sin_cocos" });
-          break;
-        }
-        throwSelfCoco("manual");
-        break;
-      case "coco_self_key_config":
-        state.cocoGuard.selfKey = typeof msg.code === "string" ? msg.code.slice(0, 32) : "";
-        if (state.cocoGuard.selfKey) cocoSelfKeyInstall();
-        sendConfig();
-        break;
-      case "no_throttle_config":
-        state.noThrottle.enabled = Boolean(msg.enabled);
-        flagSave(NO_THROTTLE_KEY, state.noThrottle.enabled);
-        noThrottleInstall();
         break;
       case "tick_burst_config":
         if (msg.ab) { state.burstAB = true; break; }
@@ -6702,7 +5146,6 @@
         if (!state.stepWalk.enabled) state.stepWalk.goal = null;
         break;
       case "exit_config":
-        if (stepClick.enabled && (msg.enabled === true || msg.punch === true)) applyStepClickConfig({ enabled: false });
         if ("enabled" in msg) state.exitMode.enabled = Boolean(msg.enabled);
         if ("punch" in msg) state.exitMode.punch = Boolean(msg.punch);
         if (!state.exitMode.enabled) state.exitMode.plan = null;
@@ -6710,7 +5153,6 @@
         sendState();
         break;
       case "exit_reset":
-        if (state.punchIsolation.enabled) break;
         state.exitMode.U = 0;
         state.exitMode.samples = [];
         try {
@@ -6723,7 +5165,7 @@
         if (!HIT_LOCK_MS) state.tickEngine.selfLockEnd = 0;
         break;
       case "tick_auto_test": // tests only: start the aim from a given margin
-        if (!state.punchIsolation.enabled && Number.isFinite(Number(msg.margin))) state.tickEngine.auto.margin = Number(msg.margin);
+        if (Number.isFinite(Number(msg.margin))) state.tickEngine.auto.margin = Number(msg.margin);
         break;
       case "tick_auto_reset":
         tickAutoReset();
@@ -6735,7 +5177,6 @@
         sendConfig();
         break;
       case "fire":
-        if (stepClick.enabled) break; // delayed Board command cannot steal this mode's target
       case "raw_punch":
         firePunch(msg.targetId, "CTRL");
         break;
@@ -6763,15 +5204,10 @@
   // Optional providers (selection, space, ping, map) can be missing at boot
   // because the client creates those singletons after login. Look again
   // until they appear; import() of an already loaded module is cheap.
-  const OPTIONAL_PROVIDERS = ["selection", "space", "ping", "map", "nav", "game", "pixi", "action", "packet"];
-  function optionalProviderReady(key, provider) {
-    // Packet builders are constructors, without a singleton. The current
-    // client exports its builder from the selection module loaded after boot.
-    return key === "packet" ? typeof provider?.exported === "function" : Boolean(providerInstance(provider));
-  }
+  const OPTIONAL_PROVIDERS = ["selection", "space", "ping", "map", "nav", "game", "pixi", "action"];
   function refreshOptionalProviders() {
     const missing = OPTIONAL_PROVIDERS.filter(
-      (key) => !optionalProviderReady(key, state.providers[key])
+      (key) => !state.providers[key] || !providerInstance(state.providers[key])
     );
     if (!missing.length || state.providerRefreshBusy) return;
     const t = now();
@@ -6791,7 +5227,7 @@
           continue;
         }
         for (const key of missing) {
-          if (optionalProviderReady(key, found[key]) && !optionalProviderReady(key, state.providers[key])) {
+          if (found[key] && providerInstance(found[key]) && !providerInstance(state.providers[key])) {
             state.providers[key] = found[key];
           }
         }
@@ -6804,27 +5240,7 @@
   }
 
   const SILENT_GAP_MS = 130; // server per-player gap (~100 ms) + jitter
-  const RING_MUTE_MS = 1800; // fallback for unverified entities, not valid Ring players
-  // ---- No local 100 ms guard (30/09) ----------------------------------------------
-  // upperRequest: if (now - lastUpperAt < 100) return. With the guard off, lastUpperAt
-  // always reads as long ago, so no punch is dropped in the client (the server's own
-  // ~100 ms gap after a processed request still applies).
-  const NO_THROTTLE_KEY = "bb5.noThrottle";
-  function noThrottleInstall() {
-    const upper = providerInstance(state.providers.upper);
-    if (!upper || typeof upper !== "object" || upper.__bbNoThrottle) return;
-    let stored = Number(upper.lastUpperAt) || 0;
-    try {
-      Object.defineProperty(upper, "lastUpperAt", {
-        configurable: true,
-        get() { return state.noThrottle.enabled ? -1e9 : stored; },
-        set(v) { stored = v; if (state.noThrottle.enabled) state.noThrottle.skipped++; }
-      });
-      Object.defineProperty(upper, "__bbNoThrottle", { value: true });
-      state.noThrottle.installed = true;
-    } catch {}
-  }
-
+  const RING_MUTE_MS = 1800; // 3 ticks: in the Ring nobody is protected for long
   function silentAnswered() {
     const E = state.tickEngine;
     E.silentLastReplyAt = now();
@@ -6833,16 +5249,8 @@
   }
 
   // Engine clicks with no reply after RTT + 250 ms: three in a row at the same
-  // target and outside Ring it is muted for 8 s (protected, NPC, no punches...).
-  // A valid native Ring player stays eligible: speculative silence is not
-  // proof of protection. Not while we are out: every click is then ignored.
-  function silentNativeRingPlayer(id) {
-    if (roomKind() !== "ring" || isStale(id)) return false;
-    const avatar = currentTargetAvatar(id);
-    const accountId = Number(avatar?.avatarInfo?.id);
-    return Boolean(avatar) && Number.isInteger(accountId) && accountId > 0;
-  }
-
+  // target and it is muted for 8 s (protected, NPC, a room without punches...).
+  // Not while we are out: then every click is ignored.
   function refreshSilent() {
     const E = state.tickEngine;
     const t = now();
@@ -6854,12 +5262,6 @@
       const n = (E.silentCount.get(c.id) || 0) + 1;
       E.silentCount.set(c.id, n);
       if (n >= 3) {
-        if (silentNativeRingPlayer(c.id)) {
-          E.silentCount.delete(c.id);
-          E.mutedUntil.delete(c.id);
-          sendDiagnostic("target_silent", { targetId: c.id, attempts: n, muted: false, reason: "ring_player_unconfirmed" });
-          continue;
-        }
         E.mutedUntil.set(c.id, t + (roomKind() === "ring" ? RING_MUTE_MS : 8000));
         E.silentCount.delete(c.id);
         sendDiagnostic("target_muted", { targetId: c.id });
@@ -6884,15 +5286,13 @@
   function roundStartNote(t) {
     const E = state.tickEngine;
     state.cocoGuard.used = 0;
-    state.cocoGuard.thrown = [];
     state.reachProbe.count = 0;
     if (state.burstAB) {
       state.burstRound = (state.burstRound | 0) + 1;
       state.tickBurst = BURST_AB[state.burstRound % 2];
       sendDiagnostic("burst_ab", { round: state.burstRound, burst: state.tickBurst });
     }
-    E.selfLockEnd = t + ROUND_START_MS;
-    E.selfLockKind = "ROUND";
+    E.selfLockEnd = Math.max(E.selfLockEnd, t + ROUND_START_MS);
     E.unlock.end = 0; // the gong cleared the armed plans: arm it again
     unlockArm();
   }
@@ -6903,7 +5303,6 @@
     const E = state.tickEngine;
     if (attacker === selfId) {
       E.selfLockEnd = Math.max(E.selfLockEnd, t + HIT_LOCK_MS);
-      E.selfLockKind = "UPPER";
       unlockArm();
       cocoGuardArm();
     } else {
@@ -6957,7 +5356,6 @@
   // 28/09: same floor as the blind tick click (a standing rival one step away).
   const UNLOCK_MIN_PROB = 0.0005;
   function unlockArm() {
-    if (state.punchIsolation.enabled) return;
     const E = state.tickEngine;
     if (!tickEnabled() || E.unlock.end === E.selfLockEnd) return;
     E.unlock.end = E.selfLockEnd;
@@ -6975,24 +5373,18 @@
         window: "UNLOCK",
         fires: [
           { index: 0, dueAt: at, delayMs: Math.max(0, at - t - SPIN_EARLY_MS) },
-          { index: 1, dueAt: at + UNLOCK_RETRY_MS, delayMs: Math.max(0, at + UNLOCK_RETRY_MS - t - SPIN_EARLY_MS) },
-          // 01/10 live: both rungs landed inside the true lock edge (frames
-          // shift with the one-way) and were silenced; a third rung at +210
-          // clears the second one's gap the same way the second clears the first.
-          { index: 2, dueAt: at + 2 * UNLOCK_RETRY_MS, delayMs: Math.max(0, at + 2 * UNLOCK_RETRY_MS - t - SPIN_EARLY_MS) }
+          { index: 1, dueAt: at + UNLOCK_RETRY_MS, delayMs: Math.max(0, at + UNLOCK_RETRY_MS - t - SPIN_EARLY_MS) }
         ]
       });
     } catch {}
   }
 
   function unlockOnWorkerFire(msg) {
-    if (state.punchIsolation.enabled) return;
     const E = state.tickEngine;
     if (`UNLOCK:${Math.round(E.unlock.end)}` !== String(msg.planId || "") || E.unlock.end !== E.selfLockEnd) return;
     if (!tickEnabled() || E.selfOut || msg.seq !== state.seq) return;
-    const step = msg.index | 0;
-    const retry = step > 0;
-    const landing = E.selfLockEnd + UNLOCK_MARGIN_MS + step * UNLOCK_RETRY_MS;
+    const retry = (msg.index | 0) === 1;
+    const landing = E.selfLockEnd + UNLOCK_MARGIN_MS + (retry ? UNLOCK_RETRY_MS : 0);
     if (exitBlocksLanding(landing)) return;
     // Whoever stands next to us now waited through our animation to ambush us
     // (25/09 live: #0 stepped next to us 0.7 s before our unlock and hit at
@@ -7055,11 +5447,6 @@
     // In our own coco selfOut is set by design; for the upper guard it means we are out.
     if (!G.enabled || !tickEnabled() || (kind !== "COCO" && E.selfOut)) return;
     if (sceneRenderer()?.spaceModel?.name !== "mGame2") return;
-    // A self-coco took this window: we are immune and can not punch anyway.
-    if (G.selfEnd && Math.abs(end - G.selfEnd) < 700) {
-      sendDiagnostic("coco_guard", { kind, targetId: -1, why: "self_coco", used: G.used, lockEnd: Math.round(end) });
-      return;
-    }
     if (G.used >= G.max) { sendDiagnostic("coco_guard", { kind, targetId: -1, why: "sin_cocos", used: G.used, lockEnd: Math.round(end) }); return; }
     const landing = end - G.leadMs;
     const pick = unlockAmbusher(landing);
@@ -7084,131 +5471,13 @@
     let best = null;
     for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
       const id = asId(rawId);
-      if (id == null || id === selfId || !timingTargetAllowed(id) || E.out.has(id) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || isStale(id) || rivalLocked(id, landing)) continue;
+      if (id == null || id === selfId || E.out.has(id) || isMuted(id) || isAlly(id) || isStale(id) || rivalLocked(id, landing)) continue;
       const a = ensureActorFromRenderer(id);
       if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
       const since = now() - (a.startAt || 0); // the longer it has waited there, the surer
       if (!best || since > best.since) best = { id, score: 1, since, face: faceSide(me.toX, me.toY, a.toX, a.toY) };
     }
     return best;
-  }
-
-  // ---- Self coco (01/10) ------------------------------------------------------
-  // The guard freezes the waiter before our unlock, but it decides once, needs
-  // budget, and its throw must be processed before the rival's punch. When none
-  // of that holds - the rival stepped adjacent after the guard's dispatch - the
-  // coco goes to OURSELVES instead: nobody can punch us for ~7 s (we can not
-  // punch either, so the unlock click is skipped), and when our coco ends the
-  // exit machinery fires at the learned phase at whoever waited through it.
-  function cocoSelfAdjacentThreat(at) {
-    const E = state.tickEngine;
-    const selfId = inferSelfId();
-    const me = ensureActorFromRenderer(selfId);
-    if (!me) return null;
-    for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
-      const id = asId(rawId);
-      if (id == null || id === selfId || E.out.has(id) || isMuted(id) || isAlly(id) || isStale(id)) continue;
-      const a = ensureActorFromRenderer(id);
-      if (!a || !lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) continue;
-      if (rivalLocked(id, at)) continue; // free only after our coco: runlock covers it
-      return { id, face: faceSide(me.toX, me.toY, a.toX, a.toY) };
-    }
-    return null;
-  }
-
-  function throwSelfCoco(why) {
-    const G = state.cocoGuard;
-    // Already stunned: the server ignores the request (01/10 live: three throws
-    // in a row, one 184) and the request would burn budget for nothing.
-    if (exitBlocksLanding(now() + rttEstimateMs() + state.tickEngine.corr)) {
-      sendDiagnostic("coco_self", { why, used: G.used, ok: false, whyBlocked: "en_coco" });
-      return false;
-    }
-    const upper = providerInstance(state.providers.upper);
-    if (!upper || typeof upper.cocoRequest !== "function") return false;
-    const selfId = inferSelfId();
-    if (selfId == null || selfId < 0) return false;
-    try {
-      upper.cocoRequest(selfId);
-    } catch {
-      return false;
-    }
-    // The outbound-149 tap counts it against the 3-per-round budget; the 184
-    // that comes back sets exitMode.self and re-arms the exit at its end.
-    G.selfEnd = state.tickEngine.selfLockEnd;
-    sendDiagnostic("coco_self", { why, used: G.used, lockEnd: Math.round(state.tickEngine.selfLockEnd || 0) });
-    return true;
-  }
-
-  // Called on every inbound user step. The ambusher of our unlock usually
-  // enters at the last tick before the lock ends (01/10 live: end-240), after
-  // the guard already made its decision - this is the second and last chance.
-  function cocoSelfOnStep(movedId) {
-    const E = state.tickEngine;
-    const G = state.cocoGuard;
-    if (G.selfMode !== "auto" || !tickEnabled() || E.selfOut || E.selfLockKind !== "UPPER" || movedId === inferSelfId()) return;
-    if (sceneRenderer()?.spaceModel?.name !== "mGame2") return;
-    // Stunned: nothing to cover, and a throw would be ignored anyway.
-    if (exitBlocksLanding(now() + rttEstimateMs() + state.tickEngine.corr)) return;
-    const end = E.selfLockEnd;
-    if (!end || G.selfEnd === end) return; // already covered this lock
-    const left = end - now();
-    if (left <= 0 || left > 600) return;
-    const threat = cocoSelfAdjacentThreat(end + UNLOCK_MARGIN_MS);
-    if (!threat) return;
-    // Before the guard's dispatch it decides with the same or better info.
-    const guardFiresAt = end - G.leadMs - rttEstimateMs() - E.corr;
-    if (now() < guardFiresAt) return;
-    if (G.used >= G.max) return; // the guard and we share the 3-coco budget
-    // The guard already went: if it covered this rival, its pending coco does.
-    if ((G.pending.get(threat.id) || 0) > end + UNLOCK_MARGIN_MS) return;
-    throwSelfCoco("ambush");
-  }
-
-  // Hotkey (01/10): the owner throws their own coco from inside the game,
-  // without reaching for the Hub. Same guards as the manual Hub button.
-  function cocoSelfOnKey(event) {
-    const G = state.cocoGuard;
-    if (!G.selfKey || event.code !== G.selfKey || event.repeat) return;
-    const el = event.target;
-    const tag = String(el?.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || el?.isContentEditable) return; // typing in the chat
-    event.preventDefault();
-    event.stopPropagation();
-    if (state.tickEngine.selfOut || G.used >= G.max) {
-      sendDiagnostic("coco_self", { why: "hotkey", used: G.used, ok: false, whyBlocked: state.tickEngine.selfOut ? "eliminado" : "sin_cocos" });
-      return;
-    }
-    throwSelfCoco("hotkey");
-  }
-
-  function cocoSelfKeyInstall() {
-    if (state.cocoGuard.selfKeyInstalled || typeof window.addEventListener !== "function") return;
-    state.cocoGuard.selfKeyInstalled = true;
-    window.addEventListener("keydown", cocoSelfOnKey, true);
-  }
-
-  // Budget accounting (01/10): a 149 that leaves says nothing - the server
-  // silently ignores throws from a stunned player (and from one without cocos).
-  // A throw only counts against the 3-per-round budget when its 184 comes back:
-  // each confirmed start stuns exactly the target it was thrown at.
-  function cocoThrowPending(targetId) {
-    const G = state.cocoGuard;
-    const id = asId(targetId);
-    let acc = -1;
-    if (id != null && id === inferSelfId()) acc = Number(selfAccountId());
-    else if (id != null) acc = Number(sceneRenderer()?.avatars?.get?.(id)?.avatarInfo?.id);
-    G.thrown.push({ t: now(), acc: Number.isFinite(acc) ? acc : -1 });
-    while (G.thrown.length > 8) G.thrown.shift();
-  }
-
-  function cocoThrowConfirmed(acc, t) {
-    const G = state.cocoGuard;
-    const i = G.thrown.findIndex((p) => p.acc === acc && t - p.t < 3000);
-    if (i < 0) return; // someone else's throw (or older than the window)
-    G.thrown.splice(i, 1);
-    G.used++;
-    sendDiagnostic("coco_used", { used: G.used, acc });
   }
 
   // ---- Rival unlock ------------------------------------------------------------
@@ -7218,15 +5487,12 @@
   // aims there. One click lands UNLOCK_MARGIN_MS after it if the rival stands
   // next to us when the click leaves.
   function runlockArm(id, end) {
-    if (state.punchIsolation.enabled) return;
     const E = state.tickEngine;
     if (!tickEnabled() || id == null || id < 0) return;
-    const avatar = currentTargetAvatar(id);
-    if (!avatar || !timingTargetAllowed(id, avatar)) return;
     const prev = E.runlock.get(id);
     if (prev && Math.abs(prev.end - end) < 5) return;
     const landing = end + UNLOCK_MARGIN_MS;
-    E.runlock.set(id, { end, landing, avatar });
+    E.runlock.set(id, { end, landing });
     while (E.runlock.size > 12) E.runlock.delete(E.runlock.keys().next().value);
     E.runlockStats.armed++;
     const t = now();
@@ -7253,15 +5519,12 @@
   // Will a rival's unlock click fire (it stands next to us now) with its
   // landing inside the server gap around `landing`?
   function runlockCovers(landing) {
-    if (state.punchIsolation.enabled) return false;
     const E = state.tickEngine;
     if (!E.runlock.size) return false;
     const me = ensureActorFromRenderer(inferSelfId());
     if (!me) return false;
     for (const [id, r] of E.runlock) {
       if (Math.abs(r.landing - landing) >= 110) continue;
-      if (!timingTargetAllowed(id, r.avatar) || !currentTargetAvatar(id, r.avatar) || (!timingSelectedOnly() && isMuted(id)) || isAlly(id) || isStale(id) ||
-          rivalLocked(id, r.landing) || selfLocked(r.landing) || exitBlocksLanding(r.landing)) continue;
       const a = ensureActorFromRenderer(id);
       if (a && !E.out.has(id) && lateralAdjacent(me.toX, me.toY, a.toX, a.toY)) return true;
     }
@@ -7269,7 +5532,6 @@
   }
 
   function runlockOnWorkerFire(msg) {
-    if (state.punchIsolation.enabled) return;
     const E = state.tickEngine;
     const [, rawId, rawEnd] = String(msg.planId || "").split(":");
     const id = Number(rawId);
@@ -7277,7 +5539,6 @@
     if (!r || Math.round(r.end) !== Number(rawEnd)) return;
     E.runlock.delete(id);
     if (!tickEnabled() || E.selfOut || msg.seq !== state.seq) return;
-    if (!timingTargetAllowed(id, r.avatar) || !currentTargetAvatar(id, r.avatar)) return;
     const landing = r.landing;
     if (selfLocked(landing) || exitBlocksLanding(landing)) return;
     const me = ensureActorFromRenderer(inferSelfId());
@@ -7289,9 +5550,8 @@
       return;
     }
     spinUntil(Math.max(Number(msg.dueAt), landing - rttEstimateMs() - E.corr));
-    if (now() - (state.lastPunch.at ?? -1e9) < GUARD_LOCK_MS + 1) return;
     if (state.timing.tick.single) faceBeforeClick(faceSide(me.toX, me.toY, a.toX, a.toY));
-    const ok = firePunch(id, "RUNLOCK", { bypassThrottle: true, avatar: r.avatar, packets: 1 });
+    const ok = firePunch(id, "RUNLOCK", { bypassThrottle: true });
     if (ok) {
       E.runlockStats.fired++;
       E.runlockStats.lastTarget = id;
@@ -7353,268 +5613,6 @@
     if (A.accounts.has(Number(info.id))) return true;
     const name = String(info.username || "").trim().toLowerCase();
     return Boolean(name) && A.names.has(name);
-  }
-
-  // ---- Simon Dice (06/10) -------------------------------------------------------
-  // The server shows a cartel as an image: 160/143 [round, timeMs, webp base64]
-  // (then 160/143 [0, ...] clears it). Top band: the asked face; green with a
-  // tick = touch it, red striped with the face crossed = touch nothing. Below,
-  // the 8 faces shuffled per player (4 x 2). A touch is 160/143/122 [round, cell]
-  // with cell 0..7 by rows. Each round gives less time and the final duel drops
-  // the slowest, so the answer leaves as soon as the cartel is read.
-  // Automatic punches are held in rooms where a Simon cartel was seen.
-  const SIMON_ROOMS_KEY = "bbhub.simonRooms.v1";
-  function simonRoomName() {
-    return String(sceneRenderer()?.spaceModel?.name || "");
-  }
-  function simonRoomsLoad() {
-    const S = state.simon;
-    if (S.roomsLoaded) return;
-    S.roomsLoaded = true;
-    try {
-      const saved = JSON.parse(window.localStorage?.getItem(SIMON_ROOMS_KEY) || "[]");
-      if (Array.isArray(saved)) for (const r of saved) if (r) S.rooms.add(String(r));
-    } catch {}
-  }
-  function simonRoomActive() {
-    simonRoomsLoad();
-    const room = simonRoomName();
-    return Boolean(room) && state.simon.rooms.has(room);
-  }
-  function simonNoteRoom() {
-    simonRoomsLoad();
-    const room = simonRoomName();
-    if (!room || state.simon.rooms.has(room)) return;
-    state.simon.rooms.add(room);
-    try { window.localStorage?.setItem(SIMON_ROOMS_KEY, JSON.stringify([...state.simon.rooms].slice(-20))); } catch {}
-  }
-
-  // The game's own sender of 160/143/122 (its method takes round and cell).
-  function simonSendFn() {
-    const S = state.simon;
-    const inst = providerInstance(state.providers.game);
-    if (!inst) return null;
-    if (S.sendName && typeof inst[S.sendName] === "function") return (round, cell) => inst[S.sendName](round, cell);
-    // The client names it simonAnswerRequest(round, cell) (06/10); fall back to its body if renamed.
-    if (typeof inst.simonAnswerRequest === "function") { S.sendName = "simonAnswerRequest"; return (round, cell) => inst.simonAnswerRequest(round, cell); }
-    for (let proto = Object.getPrototypeOf(inst); proto && proto !== Object.prototype; proto = Object.getPrototypeOf(proto)) {
-      for (const name of Object.getOwnPropertyNames(proto)) {
-        let fn = null;
-        try { fn = proto[name]; } catch {}
-        if (typeof fn !== "function" || name === "constructor") continue;
-        let src = "";
-        try { src = Function.prototype.toString.call(fn); } catch {}
-        if (/160\s*,\s*143\s*,\s*122\b/.test(src)) { S.sendName = name; return (round, cell) => inst[name](round, cell); }
-      }
-    }
-    return null;
-  }
-  function simonSend(round, cell) {
-    const viaGame = simonSendFn();
-    if (viaGame) { viaGame(round, cell); return "game"; }
-    const P = state.providers.packet?.exported;
-    const socket = providerInstance(state.providers.socket);
-    if (!P || !socket) return "";
-    const pk = new P(160, 143, 122);
-    pk.appendParameter(round);
-    pk.appendParameter(cell);
-    socket.sendServerMessage(pk);
-    return "raw";
-  }
-
-  async function simonOnCartel(fields) {
-    const S = state.simon;
-    const round = Number(fields[0]);
-    const timeMs = Number(fields[1]);
-    const b64 = String(fields[2] || "");
-    if (!(round > 0) || !b64) return;
-    simonNoteRoom();
-    if (round === 1) S.games++;
-    S.rounds++;
-    if (!S.enabled) return;
-    const t0 = now();
-    let result;
-    try {
-      const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
-      const bmp = await createImageBitmap(new Blob([bytes], { type: "image/webp" }));
-      const canvas = new OffscreenCanvas(bmp.width, bmp.height);
-      const ctx = canvas.getContext("2d", { willReadFrequently: true });
-      ctx.drawImage(bmp, 0, 0);
-      const img = ctx.getImageData(0, 0, bmp.width, bmp.height);
-      result = simonSolve(img.data, bmp.width, bmp.height);
-    } catch (error) {
-      S.errors++;
-      S.last = { round, timeMs, error: String(error?.message || error).slice(0, 80), at: Math.round(now()) };
-      sendDiagnostic("simon", S.last);
-      return;
-    }
-    const readMs = Math.round((now() - t0) * 10) / 10;
-    // The Hub keeps each read cartel with its answer (after the touch leaves).
-    setTimeout(() => sendToHub({
-      type: "simon_cartel", round, timeMs, b64, go: result.go !== false, cell: Number.isInteger(result.cell) ? result.cell : null,
-      sep: result.sep ?? null, conf: result.conf ?? null, scores: result.scores || null, error: result.error || "", readMs
-    }), 30 + (S.delayMs | 0));
-    if (result.error) {
-      S.errors++;
-      S.last = { round, timeMs, error: result.error, readMs, at: Math.round(now()) };
-      sendDiagnostic("simon", S.last);
-      return;
-    }
-    if (!result.go) {
-      S.skippedRed++;
-      S.last = { round, timeMs, go: false, readMs, at: Math.round(now()) };
-      sendDiagnostic("simon", S.last);
-      return;
-    }
-    const fire = () => {
-      let via = "";
-      try { via = simonSend(round, result.cell); } catch (error) { via = ""; }
-      if (via) S.answered++; else S.errors++;
-      S.last = { round, timeMs, go: true, cell: result.cell, conf: result.conf, sep: result.sep, readMs, totalMs: Math.round(now() - t0), via, at: Math.round(now()) };
-      sendDiagnostic("simon", S.last);
-    };
-    const delay = clamp(S.delayMs | 0, 0, 2000);
-    if (delay > 0) setTimeout(fire, delay); else fire();
-  }
-
-  function simonOnPacket(packet, direction) {
-    if (direction !== "in" || packet.id !== 160) return;
-    const f = packet.fields || [];
-    if (packet.type === 143 && f[2]) { void simonOnCartel(f); return; }
-    // 160/129 [_, accountId, name, prize]: the game's winner.
-    if (packet.type === 129 && simonRoomActive() && Number(f[1]) === selfAccountId()) state.simon.wins++;
-  }
-
-  function simonSummary() {
-    const S = state.simon;
-    return {
-      enabled: S.enabled, delayMs: S.delayMs, inRoom: simonRoomActive(), games: S.games, rounds: S.rounds,
-      answered: S.answered, skippedRed: S.skippedRed, errors: S.errors, wins: S.wins,
-      punchesHeld: S.punchesHeld, sender: S.sendName ? "game" : "", last: S.last
-    };
-  }
-
-  // Simon Dice cartel solver v2 (runs in the game page).
-  // Input: RGBA pixels of the cartel (a band with the asked face on top, a 4x2
-  // grid of shuffled faces below). Output: { go, cell, conf, ... }.
-  // Every face is drawn with its own size and rotation, so each one is sampled
-  // in polar coordinates around its disc (radius = disc size) and compared with
-  // the asked face at every rotation; the best rotation counts.
-  function simonSolve(px, w, h) {
-    const at = (x, y) => (y * w + x) * 4;
-    const rgb = (x, y) => { const i = at(x, y); return [px[i], px[i + 1], px[i + 2]]; };
-    const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
-    // Band: from the top until the first row that looks like the beige grid.
-    const isBeige = ([r, g, b]) => r > 200 && g > 190 && b > 170 && r - b < 45 && Math.abs(r - g) < 25;
-    let bandH = 0;
-    for (let y = 0; y < h; y++) {
-      let beige = 0;
-      for (let x = 0; x < w; x += 4) if (isBeige(rgb(x, y))) beige++;
-      if (beige > (w / 4) * 0.6) { bandH = y; break; }
-    }
-    if (bandH < 20) return { error: "no_band" };
-    // Band colour from its left edge (never under the face).
-    let gr = 0, rd = 0;
-    for (let y = 4; y < bandH - 4; y += 2) for (let x = 2; x < Math.min(40, w); x += 2) {
-      const [r, g, b] = rgb(x, y);
-      if (g > r + 30 && g > b) gr++;
-      else if (r > g + 40 && r > b + 20) rd++;
-    }
-    const go = gr > rd * 2;
-    if (!go) return { go: false, bandH, green: gr, red: rd };
-
-    const mean = (pts) => { const s = [0, 0, 0]; for (const c of pts) { s[0] += c[0]; s[1] += c[1]; s[2] += c[2]; } return s.map((v) => v / Math.max(1, pts.length)); };
-    const bandRef = (() => { const p = []; for (let y = 4; y < bandH - 4; y++) for (let x = 2; x < 30; x++) p.push(rgb(x, y)); return mean(p); })();
-    const gridRef = (() => { const p = []; for (let y = bandH + 2; y < h; y += 3) for (let x = 0; x < w; x += 3) { const c = rgb(x, y); if (isBeige(c)) p.push(c); } return mean(p); })();
-    // Disc of a face: its warm saturated pixels (yellow or red body, hearts).
-    const isBody = ([r, g, b]) => r > 150 && r - b > 60 && Math.max(r, g, b) - Math.min(r, g, b) > 55;
-    // Band pixels near the band green read as the grid beige, so both regions share a background.
-    const bandColor = (x, y) => { const c = rgb(x, y); return dist(c, bandRef) < 70 ? gridRef : c; };
-    const gridColor = (x, y) => rgb(x, y);
-
-    const RS = 16, AS = 64;
-    const target = polar(Math.round(w * 0.22), 4, Math.round(w * 0.52), bandH - 4, bandColor);
-    if (!target) return { go: true, error: "no_target_face", bandH };
-    const cells = [];
-    const gh = h - bandH;
-    for (let row = 0; row < 2; row++) for (let col = 0; col < 4; col++) {
-      const x0 = Math.round((col * w) / 4) + 3, x1 = Math.round(((col + 1) * w) / 4) - 3;
-      const y0 = bandH + Math.round((row * gh) / 2) + 3, y1 = bandH + Math.round(((row + 1) * gh) / 2) - 3;
-      cells.push(polar(x0, y0, x1, y1, gridColor));
-    }
-    const scores = cells.map((c) => (c ? compare(target, c) : Infinity));
-    const order = scores.map((s, i) => [s, i]).sort((a, b) => a[0] - b[0]);
-    const best = order[0], second = order[1];
-    // sep: gap to the runner-up against the gap to the middle of the pack (0..1);
-    // a low value means two faces read almost alike.
-    const sep = (second[0] - best[0]) / Math.max(1e-6, order[4][0] - best[0]);
-    return { go: true, cell: best[1], score: +best[0].toFixed(1), conf: +(second[0] / Math.max(1e-6, best[0])).toFixed(2), sep: +sep.toFixed(2), scores: scores.map((s) => +s.toFixed(1)), bandH };
-
-    function polar(x0, y0, x1, y1, colorAt) {
-      let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1;
-      for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (isBody(rgb(x, y))) {
-        if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
-      }
-      if (maxX < 0 || maxX - minX < 6 || maxY - minY < 6) return null;
-      const cx = (minX + maxX + 1) / 2, cy = (minY + maxY + 1) / 2, R = (maxX - minX + maxY - minY + 2) / 4;
-      const out = new Float32Array(RS * AS * 3);
-      for (let k = 0; k < RS; k++) {
-        const r = R * (0.05 + (1.4 * k) / (RS - 1));
-        for (let a = 0; a < AS; a++) {
-          const th = (2 * Math.PI * a) / AS;
-          const fx = cx + r * Math.cos(th) - 0.5, fy = cy + r * Math.sin(th) - 0.5, ix = Math.floor(fx), iy = Math.floor(fy), u = fx - ix, v = fy - iy;
-          const pick = (x, y) => (x < x0 || x >= x1 || y < y0 || y >= y1 ? gridRef : colorAt(x, y));
-          const c00 = pick(ix, iy), c10 = pick(ix + 1, iy), c01 = pick(ix, iy + 1), c11 = pick(ix + 1, iy + 1);
-          const c = [0, 1, 2].map((j) => (c00[j] * (1 - u) + c10[j] * u) * (1 - v) + (c01[j] * (1 - u) + c11[j] * u) * v);
-          const i = (k * AS + a) * 3;
-          out[i] = c[0]; out[i + 1] = c[1]; out[i + 2] = c[2];
-        }
-      }
-      return out;
-    }
-    function compare(a, b) {
-      let best = Infinity;
-      for (let s = 0; s < AS; s++) {
-        let sum = 0;
-        for (let k = 0; k < RS && sum < best; k++) for (let i = 0; i < AS; i++) {
-          const p = (k * AS + i) * 3, q = (k * AS + ((i + s) % AS)) * 3;
-          const dr = a[p] - b[q], dg = a[p + 1] - b[q + 1], db = a[p + 2] - b[q + 2];
-          sum += Math.sqrt(dr * dr + dg * dg + db * db);
-        }
-        if (sum < best) best = sum;
-      }
-      return best / (RS * AS);
-    }
-  }
-
-
-  // ---- Portraits for the Hub's ally list (06/10) -------------------------------
-  // The keko as the room draws it, rendered by the game's own PIXI renderer.
-  // Called by the Hub launcher (never by the combat path), one avatar per call.
-  // A GPU readback blocks the main thread ~15 ms, so with Timing on it only runs
-  // right after a batch (the next tick click leaves ~435 ms after it).
-  // Only the account id, name and image leave the page.
-  const PORTRAIT_FRONT = { 4: 2, 1: 1, 7: 1, 8: 1 }; // orient -> quality (4 = facing us)
-  async function portraitNext(have = {}) {
-    const E = state.tickEngine;
-    const t = now();
-    const since = t - E.lastBatchAt;
-    if (tickEnabled() && E.origin != null && !(since >= 40 && since <= 300)) return { wait: true };
-    const renderer = providerInstance(state.providers.pixi)?.app?.renderer;
-    if (!renderer?.extract?.base64) return { error: "no_renderer" };
-    for (const [, avatar] of sceneRenderer()?.avatars || []) {
-      const info = avatar?.avatarInfo;
-      const accountId = Number(info?.id);
-      if (!Number.isFinite(accountId) || accountId <= 0 || !avatar?.movieClip || isStaleAvatar(avatar)) continue;
-      const quality = PORTRAIT_FRONT[Number(avatar.position?.z) | 0] || 0;
-      const prev = have[accountId];
-      if (prev != null && Number(prev) >= quality) continue;
-      let url = "";
-      try { url = await renderer.extract.base64({ target: avatar.movieClip, resolution: 1 }); } catch { continue; }
-      if (typeof url !== "string" || !url.startsWith("data:image/") || url.length > 200000) continue;
-      return { accountId, name: String(info.username || "").slice(0, 40), url, quality };
-    }
-    return { none: true };
   }
 
   const ALLY_KEY = "bbhub.allies.v1";
@@ -7771,6 +5769,40 @@
     sendDiagnostic("auto_ring", { joins: R.joins });
   }
 
+  // ---- Random emotes (29/09) -----------------------------------------------------
+  const EMOTE_IDS = [1, 2, 3, 4, 7]; // risa1, risa2, pedo, escupir, llorar
+  const EMOTE_SAFE_TILES = 4; // in the Ring, only with no free rival this close
+  function emotePump(t) {
+    const M = state.emotes;
+    if (!M.enabled) return;
+    if (!M.nextAt) M.nextAt = t + M.minMs + Math.random() * (M.maxMs - M.minMs);
+    if (t < M.nextAt) return;
+    const next = () => { M.nextAt = t + M.minMs + Math.random() * (M.maxMs - M.minMs); };
+    const action = providerInstance(state.providers.action);
+    if (!action || typeof action.actionRequest !== "function") return next();
+    if (roomKind() === "ring") {
+      const E = state.tickEngine;
+      const selfId = inferSelfId();
+      const me = ensureActorFromRenderer(selfId);
+      if (!me || E.selfOut) return next();
+      if (selfLocked(t) || exitBlocksLanding(t)) { M.skipped++; return next(); }
+      for (const rawId of sceneRenderer()?.avatars?.keys?.() || []) {
+        const id = asId(rawId);
+        if (id == null || id === selfId || E.out.has(id) || isAlly(id) || isStale(id)) continue;
+        const a = ensureActorFromRenderer(id);
+        if (a && Math.max(Math.abs(a.toX - me.toX), Math.abs(a.toY - me.toY)) <= EMOTE_SAFE_TILES) {
+          M.skipped++;
+          M.nextAt = t + 3000; // try again soon, once the area is clear
+          return;
+        }
+      }
+    }
+    const id = EMOTE_IDS[Math.floor(Math.random() * EMOTE_IDS.length)];
+    try { action.actionRequest(id); M.sent++; M.last = id; } catch {}
+    sendDiagnostic("emote", { id });
+    next();
+  }
+
   // ---- Render off (29/09) --------------------------------------------------------
   // PIXI keeps ticking (tweens, avatar moves, the client's logic) but its
   // renderer draws nothing: software WebGL was eating the CPU the timing needs.
@@ -7812,23 +5844,11 @@
     if (!E.out.size) return;
     const avatars = sceneRenderer()?.avatars;
     if (!(avatars instanceof Map)) return;
-    const room = sceneRenderer()?.spaceModel?.name;
     for (const id of E.out) {
-      const avatar = avatars.get(id);
-      if (!avatar || avatar.__departing) E.outGone.add(id);
-      // Ring spectators stay eliminated even if the renderer rebuilds them.
-      // Islands can reuse the same room ID between two roster polls.
-      else if (room && room !== "mGame2" &&
-          (E.outGone.has(id) || (E.outAvatars.has(id) && E.outAvatars.get(id) !== avatar))) {
+      if (!avatars.has(id)) E.outGone.add(id);
+      else if (E.outGone.has(id)) {
         E.out.delete(id);
         E.outGone.delete(id);
-        E.outAvatars.delete(id);
-        E.down.delete(id);
-        E.mutedUntil.delete(id);
-        E.silentCount.delete(id);
-        E.lockUntil.delete(id);
-        E.runlock.delete(id);
-        if (id === inferSelfId()) { E.selfOut = false; E.pausedUntil = 0; }
       }
     }
   }
@@ -7836,25 +5856,21 @@
   function sendTick() {
     const t = now();
     refreshOptionalProviders();
-    // Provider classes can be discovered before their socket singleton/worker
-    // exists. Attach the early tap when that worker actually becomes available.
-    hookSocketWorkerEarly(providerInstance(state.providers.socket));
-    noThrottleInstall();
     if (!state.persistLoaded) {
       state.persistLoaded = true;
       allyLoad();
       flagLoad(AUTO_RING_KEY, state.autoRing);
-      try { if (window.localStorage?.getItem(NO_THROTTLE_KEY) === "0") state.noThrottle.enabled = false; } catch {}
       flagLoad(RENDER_OFF_KEY, state.renderOff);
     }
     autoRingPump(t);
+    emotePump(t);
     if (state.renderOff.enabled || state.renderOff.orig) renderOffApply();
     refreshEliminated();
     refreshSilent();
     exitPump();
     const players = collectPlayers();
     const inCombat =
-      (state.timing.enabled || state.pulse.enabled || state.moveDelay.enabled || stepClick.enabled) &&
+      (state.timing.enabled || state.pulse.enabled || state.moveDelay.enabled) &&
       (players.length > 1 || state.burstPlans.length > 0 || state.gridPlan);
     const stateEvery = inCombat ? state.performance.stateMs : Math.max(state.performance.stateMs, 700);
     const sceneEvery = inCombat ? state.performance.sceneMs : Math.max(state.performance.sceneMs, 5000);
@@ -7974,8 +5990,6 @@
 
   function status() {
     return {
-      punchIsolation: { enabled: state.punchIsolation.enabled, phaseMs: state.punchIsolation.phaseMs },
-      stepClick: stepClickSummary(),
       ready: state.ready,
       bridgeBuild: BRIDGE_BUILD,
       selfId: state.selfId,
@@ -7984,11 +5998,9 @@
       allies: { accounts: [...state.allies.accounts], names: [...state.allies.names], blocked: state.allies.blocked },
       autoRing: { enabled: state.autoRing.enabled, hotkey: state.autoRing.hotkey, requeues: state.autoRing.requeues, oneShot: state.autoRing.oneShotUntil > now(), joins: state.autoRing.joins, leaves: state.autoRing.leaves, lobbyTrips: state.autoRing.lobbyTrips, room: roomKind(), lastStatus: state.autoRing.lastStatus, provider: Boolean(providerInstance(state.providers.game)) },
       lowPing: { mode: state.lowPing.mode, active: lowPingActive(), skipped: state.lowPing.skipped },
-      noThrottle: { enabled: state.noThrottle.enabled, installed: state.noThrottle.installed, sends: state.noThrottle.skipped },
       tickAdv: { sweep: state.tickAdv.sweep, repeatMs: state.tickAdv.repeatMs, repeats: state.tickAdv.repeats, burst: state.tickBurst },
-      simon: simonSummary(),
-      freeFire: { enabled: state.freeFire.enabled, gapMs: state.freeFire.gapMs },
       stale: { remembered: staleCount, listed: (() => { let n = 0; const av = sceneRenderer()?.avatars; if (av instanceof Map) for (const a of av.values()) if (isStaleAvatar(a)) n++; return n; })(), outOfRing: (() => { let n = 0; const av = sceneRenderer()?.avatars; if (av instanceof Map) for (const k of av.keys()) if (notRingSlot(asId(k))) n++; return n; })() },
+      emotes: { enabled: state.emotes.enabled, sent: state.emotes.sent, skipped: state.emotes.skipped, last: state.emotes.last, provider: Boolean(providerInstance(state.providers.action)) },
       renderOff: { enabled: state.renderOff.enabled, patched: state.renderOff.patched, provider: Boolean(providerInstance(state.providers.pixi)?.app) },
       timing: { ...state.timing, autoLead: leadCurrent() },
       state: { ...state.stateCfg },
@@ -8038,9 +6050,6 @@
         : null,
       tick: tickStatus(),
       exit: exitSummary(),
-      cocoGuard: { enabled: state.cocoGuard.enabled, selfMode: state.cocoGuard.selfMode,
-        used: state.cocoGuard.used, max: state.cocoGuard.max, pending: state.cocoGuard.pending.size,
-        selfCovered: state.cocoGuard.selfEnd === state.tickEngine.selfLockEnd && state.cocoGuard.selfEnd > 0 },
       providers: Object.fromEntries(
         Object.entries(state.providers).map(([k, v]) => [k, Boolean(v)])
       ),
@@ -8116,8 +6125,6 @@
             ok = moveTo(action.x, action.y);
           } else if (action.kind === "raw") {
             ok = duelSendRaw(action.id, action.type, action.params);
-          } else if (action.kind === "rawbytes") {
-            ok = duelSendBytes(action.bytes, action.id || 211);
           } else {
             const u = upper();
             if (action.face > 0 && u && typeof u.rotationRequest === "function") u.rotationRequest(action.face);
@@ -8152,14 +6159,6 @@
     }
   }
 
-  // Send an exact byte string (latin1) as one WSS message — hand-crafted,
-  // possibly malformed frames the client class would never build (duel exploit).
-  function duelSendBytes(latin1, idForLog = 211) {
-    const socket = providerInstance(state.providers.socket);
-    if (!socket || typeof latin1 !== "string") return false;
-    try { socket.sendServerMessage({ id: idForLog | 0, toString: () => latin1 }); return true; } catch { return false; }
-  }
-
   function duelJoinZone(zoneId) {
     const nav = providerInstance(state.providers.nav);
     if (!nav || typeof nav.islandRequest !== "function") return false;
@@ -8179,44 +6178,11 @@
     onHubMessage,
     setHubConnected(connected) {
       state.hubConnected = Boolean(connected);
-      if (!state.hubConnected) {
-        stepClick.enabled = false;
-        stepClickCancel("disconnected");
-      }
     },
     fire: (targetId) => firePunch(targetId, "manual"),
-    portraitNext,
     lab: {
       cooldownProbe: (options) => labCooldownProbe(options),
-      structProbe: (options) => labStructProbe(options),
       targets: () => labProbeTargets()
-    },
-    // Server-REPL for the shell (drive via CDP). Turns the authenticated client
-    // into a raw packet pipe: send any opcode, then read every reply from the tap.
-    debug: {
-      tap(on = true) { state.rawTap.on = Boolean(on); if (on) state.rawTap.ring = []; return state.rawTap.on; },
-      clear() { state.rawTap.ring = []; return true; },
-      capture(sinceMs = 1500) { const cut = now() - sinceMs; return state.rawTap.ring.filter((x) => x.t >= cut); },
-      self() { return { id: inferSelfId(), acc: selfAccountId(), rtt: Math.round(rttEstimateMs()), room: sceneRenderer()?.spaceModel?.name || "" }; },
-      // Send one raw packet built with the game's own class. params is an array.
-      sendRaw({ op, type = 0, sub = 0, params = [] } = {}) {
-        const P = state.providers.packet?.exported;
-        const socket = providerInstance(state.providers.socket);
-        if (!P || !socket) return { error: "no_socket" };
-        const pk = type > 0 ? (sub > 0 ? new P(op, type, sub) : new P(op, type)) : new P(op);
-        for (const p of params) pk.appendParameter(typeof p === "number" ? p : String(p));
-        try { socket.sendServerMessage(pk); } catch (e) { return { error: String(e && e.message || e) }; }
-        return { sent: true };
-      },
-      // Send an exact byte string (latin1) as one WSS message, id for logging only.
-      sendBytes(latin1, idForLog = 0) {
-        const socket = providerInstance(state.providers.socket);
-        if (!socket) return { error: "no_socket" };
-        try { socket.sendServerMessage({ id: idForLog | 0, toString: () => latin1 }); } catch (e) { return { error: String(e && e.message || e) }; }
-        return { sent: true, bytes: latin1.length };
-      },
-      // Build one 211[id] frame string (latin1) so the shell can glue/craft.
-      frame211(id, opts) { const P = state.providers.packet?.exported; return P ? structFrameString(P, id, opts) : null; }
     },
     move: (x, y) => moveTo(x, y),
     requeue: () => requeueNow(),

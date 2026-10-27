@@ -17,7 +17,7 @@ const RING_BOARD_CLIENT_ID = "bbhub-main";
 // Ring mGame2 static layout hash (fnv1a of the HTML5 runtime scene). 23/09 update:
 // 117 tiles; the 84-tile Ring before it was "681d57fe" (both are allowed).
 const RING_BOARD_SCENE_HASH = "794bf3d1";
-const CONTROLLER_BUILD = "bb_hub_electron_26102026_release_0125";
+const CONTROLLER_BUILD = "bb_hub_electron_27102026_release_0126_prime";
 const TIMING_WINDOW_MAX = 750;
 const TIMING_START_MAX = TIMING_WINDOW_MAX - 1;
 const TIMING_RATE_MAX = 200;
@@ -237,15 +237,15 @@ const MOVE_BRAIN_NAMES = ["planner", "tile", "tile2", "tile3"];
 
 // Whitelist (29/09): names or account ids the bot never punches (the ally account,
 // friends). Stored as typed; the runtime matches names case-insensitively.
-// Advanced Timing knobs (29/09). Factory values = the Timing that won on 26/10
-// (0.1.25): one click per shot, second click +105, sweep and reaction on.
-const ADVANCED_DEFAULTS = Object.freeze({ burst: 1, repeatMs: 105, sweep: true, reactive: true });
-const BURST_MAX = 100;
-// T+ of the tick click, always manual (0.1.25): the learned Auto drifted to T+15.
-const TICK_AIM_DEFAULT = 8;
+// Advanced Timing knobs (29/09). Factory values = the prime of 30/09 (0.1.26):
+// one click per shot, no second click, sweep and reaction on.
+const ADVANCED_DEFAULTS = Object.freeze({ burst: 1, repeatMs: 0, sweep: true, reactive: true });
+const BURST_MAX = 20; // 0.1.26: the 30/09 runtime caps a tick burst at 20 (TICK_BURST_MAX)
+// T+ of the tick click, always manual: T+10 as on 30/09 (0.1.26).
+const TICK_AIM_DEFAULT = 10;
 const TICK_AIM_MAX = 100;
-// Settings saved before this revision get the 0.1.25 Timing defaults once.
-const TIMING_DEFAULTS_REV = "0.1.25";
+// Settings saved before this revision get the 0.1.26 Timing defaults once.
+const TIMING_DEFAULTS_REV = "0.1.26";
 function normalizeAdvanced(value) {
   const v = value && typeof value === "object" ? value : {};
   const repeat = Number(v.repeatMs);
@@ -556,7 +556,7 @@ class ControllerCore extends EventEmitter {
     catch { this.timingHotkey = "F2"; }
     this.timingDefaultsRev = TIMING_DEFAULTS_REV;
     this.tickAim = saved.timingDefaultsRev === TIMING_DEFAULTS_REV ? normalizeTickAim(saved.tickAim) : TICK_AIM_DEFAULT;
-    this.timingTargetMode = normalizeTimingTargetMode(saved.timing?.targetMode);
+    this.timingTargetMode = "AUTO"; // 0.1.26: the 30/09 runtime has no "only the selected" mode
     // Movement brain chosen on the Board (0 planner, 1 tile, 2 tile2): the ring-board
     // starts on the planner, so it is sent again whenever its status says otherwise.
     this.moveBrain = [0, 1, 2, 3].includes(saved.moveBrain) ? saved.moveBrain : 0;
